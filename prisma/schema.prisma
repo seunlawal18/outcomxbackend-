@@ -1,0 +1,147 @@
+// ─── OUTCOMX Prisma Schema ────────────────────────────────────────────────────
+//
+// Datasource: SQLite (development)
+// To migrate to PostgreSQL: change provider to "postgresql" and update DATABASE_URL
+//
+// Migration path:
+//   SQLite   → provider = "sqlite",     url = env("DATABASE_URL")
+//   Postgres → provider = "postgresql", url = env("DATABASE_URL")
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+model User {
+  id           Int    @id @default(autoincrement())
+  email        String @unique
+  passwordHash String @map("password_hash")
+  name         String
+  username     String @unique
+  region       String @default("nigeria")
+  balance      Float  @default(50000)
+  isAdmin      Int    @default(0) @map("is_admin")
+  isDemo       Int    @default(0) @map("is_demo")
+  bio          String @default("")
+  avatar       String @default("")
+  joinedAt     String @default(dbgenerated("(datetime('now'))")) @map("joined_at")
+  createdAt    String @default(dbgenerated("(datetime('now'))")) @map("created_at")
+
+  trades Trade[]
+
+  @@map("users")
+}
+
+// ─── Markets ──────────────────────────────────────────────────────────────────
+//
+// options       — JSON array of outcome labels (any strings)
+// probabilities — JSON object { label: pct } summing to 100
+// resolution_source — optional URL/description of resolution criteria
+// banner        — optional wide banner image URL
+
+model Market {
+  id               Int    @id @default(autoincrement())
+  title            String
+  category         String
+  type             String
+  options          String // JSON array
+  status           String @default("open")
+  result           String?
+  volume           Float  @default(0)
+  probabilities    String // JSON object
+  duration         String
+  expiresAt        String @map("expires_at")
+  image            String?
+  banner           String?
+  resolutionSource String? @map("resolution_source")
+  platformFee      Float?  @map("platform_fee")  // 3% of total pool — set at settlement
+  prizePool        Float?  @map("prize_pool")     // 97% of total pool — set at settlement
+  trending         Int    @default(0)
+  createdAt        String @default(dbgenerated("(datetime('now'))")) @map("created_at")
+
+  trades       Trade[]
+  outcomes     MarketOutcome[]
+  priceHistory MarketPriceHistory[]
+
+  @@map("markets")
+}
+
+// ─── Market Outcomes ──────────────────────────────────────────────────────────
+//
+// One row per outcome per market.
+// Supports binary (2 outcomes), directional (2), sports (2–3), ranged (N).
+// probability — decimal 0.00–1.00 (updated after every trade)
+// pool_amount — total staked on this outcome (updated after every trade)
+
+model MarketOutcome {
+  id          Int    @id @default(autoincrement())
+  marketId    Int    @map("market_id")
+  label       String
+  probability Float  @default(0.5)
+  poolAmount  Float  @default(0) @map("pool_amount")
+  createdAt   String @default(dbgenerated("(datetime('now'))")) @map("created_at")
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@index([marketId], name: "idx_outcomes_market_id")
+  @@map("market_outcomes")
+}
+
+// ─── Trades ───────────────────────────────────────────────────────────────────
+
+model Trade {
+  id           Int    @id @default(autoincrement())
+  userId       Int    @map("user_id")
+  marketId     Int    @map("market_id")
+  marketTitle  String @map("market_title")
+  option       String
+  amount       Float
+  status       String @default("active")
+  payoutAmount Float? @map("payout_amount")
+  timestamp    String @default(dbgenerated("(datetime('now'))"))
+
+  user   User   @relation(fields: [userId],   references: [id], onDelete: Cascade)
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@index([userId],   name: "idx_trades_user_id")
+  @@index([marketId], name: "idx_trades_market_id")
+  @@map("trades")
+}
+
+// ─── Token Blacklist ──────────────────────────────────────────────────────────
+
+model TokenBlacklist {
+  token     String @id
+  expiresAt String @map("expires_at")
+
+  @@map("token_blacklist")
+}
+
+// ─── Market Price History ─────────────────────────────────────────────────────
+//
+// One row per trade event — full probability snapshot for all outcomes.
+// yes_price = first-option decimal price (0.00–1.00)
+// no_price  = second-option decimal price (0.00–1.00)
+// Works for all market types — no hardcoded "Yes"/"No" assumptions.
+
+model MarketPriceHistory {
+  id            Int    @id @default(autoincrement())
+  marketId      Int    @map("market_id")
+  probabilities String // Full JSON snapshot
+  yesPrice      Float? @map("yes_price")
+  noPrice       Float? @map("no_price")
+  tradeVolume   Float  @default(0) @map("trade_volume")
+  timestamp     String @default(dbgenerated("(datetime('now'))")) @map("recorded_at")
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@index([marketId],            name: "idx_price_history_market")
+  @@index([marketId, timestamp], name: "idx_price_history_time")
+  @@map("market_price_history")
+}
