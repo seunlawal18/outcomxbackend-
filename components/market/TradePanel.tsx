@@ -19,7 +19,7 @@ interface Props {
   /** When true, renders as a compact bottom bar that opens a slide-up sheet */
   isMobile?: boolean;
   /** Imperative ref: call openSheet(option) to open the sheet with a pre-selected outcome */
-  sheetRef?: React.RefObject<{ open: (opt?: string) => void }>;
+  sheetRef?: React.RefObject<{ open: (opt?: string) => void } | null>;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -47,14 +47,18 @@ function TradeForm({
   compact?: boolean;
 }) {
   const { balance } = useStore();
-  const { fmt, minStake, symbol, quickAmounts } = useCurrency();
+  const { fmt, minStake, symbol, quickStakes, toCredits, toDisplay } = useCurrency();
   const isMultiYesNo = market.type === "MULTI_YESNO";
   const prob = market.probabilities[selectedOption] ?? 50;
   const effectiveProb = isMultiYesNo && yesNoSide === "no" ? 100 - prob : prob;
+  // amt is in display currency (what user typed)
   const amt = parseFloat(amount || "0");
   const safeProbability = Math.max(effectiveProb / 100, 0.05);
+  // Payout stays in display currency for preview
   const lockedPayout = amt > 0 ? amt * (1 / safeProbability) : 0;
   const lockedProfit = lockedPayout - amt;
+  // balance is in credits — convert once for display
+  const displayBalance = toDisplay(balance);
 
   return (
     <div style={{ padding: compact ? "12px 14px" : 16 }}>
@@ -182,7 +186,7 @@ function TradeForm({
 
       {/* Quick amounts */}
       <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-        {quickAmounts.slice(0, 3).map(qa => (
+        {quickStakes.slice(0, 3).map(qa => (
           <button key={qa} onClick={() => setAmount(String(qa))} style={{
             flex: 1, padding: "5px 0", borderRadius: 6,
             background: amount === String(qa) ? "var(--emerald-bg)" : "var(--bg-card-hover)",
@@ -193,8 +197,8 @@ function TradeForm({
             {symbol}{qa.toLocaleString()}
           </button>
         ))}
-        <button onClick={() => setAmount(String(Math.floor(balance * 0.5)))} style={{ flex: 1, padding: "5px 0", borderRadius: 6, background: "var(--bg-card-hover)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>50%</button>
-        <button onClick={() => setAmount(String(balance))} style={{ flex: 1, padding: "5px 0", borderRadius: 6, background: "var(--bg-card-hover)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Max</button>
+        <button onClick={() => setAmount(String(Math.floor(displayBalance * 0.5)))} style={{ flex: 1, padding: "5px 0", borderRadius: 6, background: "var(--bg-card-hover)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>50%</button>
+        <button onClick={() => setAmount(String(Math.floor(displayBalance)))} style={{ flex: 1, padding: "5px 0", borderRadius: 6, background: "var(--bg-card-hover)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Max</button>
       </div>
 
       {/* Return preview */}
@@ -264,7 +268,8 @@ function TradeForm({
 // ─────────────────────────────────────────────────────────────────
 export default function TradePanel({ market, preSelected, preSelectedSide, onTradeSuccess, isMobile, sheetRef }: Props) {
   const { balance, placeTrade, isLoggedIn } = useStore();
-  const { fmt, minStake, symbol } = useCurrency();
+  const { fmt, minStake, symbol, toCredits, toDisplay } = useCurrency();
+  const displayBalance = toDisplay(balance);
 
   const [selectedOption, setSelectedOption] = useState(preSelected || market.options[0]);
   const [yesNoSide, setYesNoSide] = useState<"yes" | "no">(preSelectedSide ?? "yes");
@@ -300,14 +305,14 @@ export default function TradePanel({ market, preSelected, preSelectedSide, onTra
   void tick;
 
   const handleTrade = async () => {
-    const a = parseFloat(amount);
+    const a = parseFloat(amount); // display currency
     if (!a || a < minStake) {
       setErrorMsg(`Minimum stake is ${symbol}${minStake.toLocaleString()}`);
       setStatus("error");
       setTimeout(() => setStatus("idle"), 3000);
       return;
     }
-    if (a > balance) {
+    if (a > displayBalance) {
       setErrorMsg(`Insufficient balance (${fmt(balance)})`);
       setStatus("error");
       setTimeout(() => setStatus("idle"), 3000);
@@ -317,7 +322,9 @@ export default function TradePanel({ market, preSelected, preSelectedSide, onTra
     const tradeOption = market.type === "MULTI_YESNO"
       ? `${selectedOption}:${yesNoSide === "yes" ? "Yes" : "No"}`
       : selectedOption;
-    const ok = await placeTrade(market.id, tradeOption, a);
+    // Convert display currency → credits before sending to API
+    const amountCredits = toCredits(a);
+    const ok = await placeTrade(market.id, tradeOption, amountCredits);
     if (ok) {
       setStatus("success");
       setAmount("");

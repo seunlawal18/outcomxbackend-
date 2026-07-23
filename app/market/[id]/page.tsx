@@ -9,6 +9,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MarketHeader from "@/components/market/MarketHeader";
 import ProbabilityChart from "@/components/market/ProbabilityChart";
+import LivePriceChart from "@/components/market/LivePriceChart";
 import TradePanel from "@/components/market/TradePanel";
 import RecentTrades from "@/components/market/RecentTrades";
 import PositionSummary from "@/components/market/PositionSummary";
@@ -27,7 +28,7 @@ function MultiYesNoOutcomes({
   selectedOption: string;
   selectedSide: "yes" | "no";
 }) {
-  const { fmtVol } = useCurrency();
+  const { fmtVolUSD } = useCurrency();
   const COLORS = ["#10b981", "#ef4444", "#f59e0b", "#6366f1", "#3b82f6", "#8b5cf6"];
 
   return (
@@ -63,7 +64,7 @@ function MultiYesNoOutcomes({
       })}
       <div style={{ padding: "10px 18px", display: "flex", alignItems: "center", gap: 6 }}>
         <span className="live-dot" style={{ width: 6, height: 6 }} />
-        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{fmtVol(market.volume)} Vol.</span>
+        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{fmtVolUSD(market.volume)} Vol.</span>
       </div>
     </div>
   );
@@ -103,7 +104,7 @@ function OutcomesTable({ market, onSelect, selected }: { market: Market; onSelec
 
 // ── Settlement Summary Card ───────────────────────────────────────
 function SettlementSummaryCard({ market }: { market: Market }) {
-  const { fmt } = useCurrency();
+  const { fmtUSD, fmtVolUSD } = useCurrency();
   if (market.status !== "settled" || market.platformFee == null) return null;
   return (
     <div className="card" style={{ padding: 20 }}>
@@ -115,9 +116,9 @@ function SettlementSummaryCard({ market }: { market: Market }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
         {[
-          { label: "Winning Outcome", value: market.result ?? "—", color: "var(--emerald)", bold: true },
-          { label: "Total Pool", value: fmt(market.volume), color: "var(--text-primary)" },
-          { label: "Platform Fee", value: `− ${fmt(market.platformFee)}`, color: "#f59e0b" },
+          { label: "Winning Outcome", value: market.result ?? "—",                    color: "var(--emerald)", bold: true },
+          { label: "Total Pool",      value: fmtUSD(market.volume),                   color: "var(--text-primary)" },
+          { label: "Platform Fee",    value: `− ${fmtUSD(market.platformFee ?? 0)}`,  color: "#f59e0b" },
         ].map((row, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
             <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{row.label}</span>
@@ -126,7 +127,7 @@ function SettlementSummaryCard({ market }: { market: Market }) {
         ))}
         <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 14px", marginTop: 8, borderRadius: 10, background: "var(--emerald-bg)", border: "1px solid var(--emerald-border)" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>Prize Pool</span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--emerald)" }}>{fmt(market.prizePool ?? market.volume)}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--emerald)" }}>{fmtUSD(market.prizePool ?? market.volume)}</span>
         </div>
       </div>
     </div>
@@ -234,6 +235,9 @@ function MarketPageContent({ id: marketId }: { id: string }) {
           resolutionSource: res.data.resolutionSource ?? undefined,
           platformFee: res.data.platformFee ?? null,
           prizePool: res.data.prizePool ?? null,
+          priceAssetId: res.data.priceAssetId ?? null,
+          priceAssetSymbol: res.data.priceAssetSymbol ?? null,
+          openingPrice: res.data.openingPrice ?? null,
         };
         setMarket(m);
         setSelectedOption(m.options[0]);
@@ -256,38 +260,9 @@ function MarketPageContent({ id: marketId }: { id: string }) {
 
   const handleTradeSuccess = useCallback(() => setTradeCount(c => c + 1), []);
 
-  // Auto-refresh every 3s when open
-  useEffect(() => {
-    if (!market || market.status !== "open") return;
-    const timer = setInterval(async () => {
-      const res = await apiGetMarket(parseInt(marketId));
-      if (res.ok && res.data) {
-        const updated: Market = {
-          id: res.data.id, title: res.data.title,
-          category: res.data.category as Market["category"],
-          type: res.data.type as Market["type"],
-          options: res.data.options,
-          status: res.data.status as Market["status"],
-          result: res.data.result,
-          volume: res.data.volume,
-          createdAt: res.data.createdAt,
-          probabilities: res.data.probabilities,
-          trending: res.data.trending,
-          duration: res.data.duration as Market["duration"],
-          expiresAt: res.data.expiresAt,
-          image: res.data.image ?? undefined,
-          banner: res.data.banner ?? undefined,
-          resolutionSource: res.data.resolutionSource ?? undefined,
-          platformFee: res.data.platformFee ?? null,
-          prizePool: res.data.prizePool ?? null,
-        };
-        setMarket(updated);
-        setTradeCount(c => c + 1);
-      }
-    }, 3_000);
-    return () => clearInterval(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [market?.status, market?.id]);
+  // Real-time updates (probabilities, volume, status, result) now arrive via
+  // RealtimeSync patching the shared store — see the "Sync with store"
+  // effect above — instead of this page polling apiGetMarket every 3s.
 
   if (!market && !notFound) {
     return (
@@ -353,11 +328,21 @@ function MarketPageContent({ id: marketId }: { id: string }) {
             ) : (
               <>
                 {/* No key prop — chart stays alive and pushes new points on prob changes */}
-                <ProbabilityChart
-                  marketId={market.id}
-                  options={market.options}
-                  probabilities={market.probabilities}
-                />
+                {market.priceAssetId && market.openingPrice != null ? (
+                  <LivePriceChart
+                    marketId={market.id}
+                    openingPrice={market.openingPrice}
+                    assetSymbol={market.priceAssetSymbol ?? market.priceAssetId.toUpperCase()}
+                    expiresAt={market.expiresAt}
+                    duration={market.duration}
+                  />
+                ) : (
+                  <ProbabilityChart
+                    marketId={market.id}
+                    options={market.options}
+                    probabilities={market.probabilities}
+                  />
+                )}
                 <OutcomesTable
                   market={market}
                   selected={selectedOption}
@@ -421,6 +406,12 @@ function MarketPageContent({ id: marketId }: { id: string }) {
           .market-detail-grid {
             display: flex !important;
             flex-direction: column !important;
+            /* globals.css sets align-items:start for the desktop grid's
+               vertical alignment — in a column flex layout that property
+               instead controls horizontal stretch, which was shrinking the
+               column to its narrowest child's width instead of filling the
+               screen. Reset it back to full-width stretch here. */
+            align-items: stretch !important;
           }
           /* Hide the desktop right-column trade panel on mobile */
           .trade-panel-col {

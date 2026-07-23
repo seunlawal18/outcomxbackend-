@@ -4,8 +4,7 @@
 // Falls back gracefully if the backend is unreachable.
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-const TOKEN_KEY       = "outcomx_token";
-const ADMIN_TOKEN_KEY = "outcomx_admin_token";
+const TOKEN_KEY = "outcomx_token";
 
 // ── User token helpers ────────────────────────────────────────────
 export function getToken(): string | null {
@@ -19,27 +18,13 @@ export function clearToken(): void {
   if (typeof window !== "undefined") localStorage.removeItem(TOKEN_KEY);
 }
 
-// ── Admin token helpers ───────────────────────────────────────────
-export function getAdminToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(ADMIN_TOKEN_KEY);
-}
-export function setAdminToken(token: string): void {
-  if (typeof window !== "undefined") localStorage.setItem(ADMIN_TOKEN_KEY, token);
-}
-export function clearAdminToken(): void {
-  if (typeof window !== "undefined") localStorage.removeItem(ADMIN_TOKEN_KEY);
-}
-
 // ── Core fetch wrapper ────────────────────────────────────────────
-async function apiFetch<T>(
+export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<{ ok: boolean; data?: T; error?: string }> {
   try {
-    const token = path.startsWith("/api/admin")
-      ? (getAdminToken() ?? getToken())
-      : getToken();
+    const token = getToken();
 
     const res = await fetch(`${BASE_URL}${path}`, {
       ...options,
@@ -51,15 +36,6 @@ async function apiFetch<T>(
     });
 
     const json = await res.json();
-
-    // If admin token is rejected, clear it so the UI redirects to login
-    if (res.status === 401 && path.startsWith("/api/admin")) {
-      clearAdminToken();
-      // Dispatch a custom event so the layout can catch it and redirect
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("admin-token-expired"));
-      }
-    }
 
     if (!res.ok) {
       return { ok: false, error: json.error ?? `HTTP ${res.status}` };
@@ -86,6 +62,23 @@ export async function apiRegister(
   const res = await apiFetch<{ token: string; user: ApiUser }>(
     "/api/auth/register",
     { method: "POST", body: JSON.stringify({ email, password, name, region }) }
+  );
+  if (res.ok && res.data) setToken(res.data.token);
+  return res;
+}
+
+// ── Wallet auth ───────────────────────────────────────────────────
+export async function apiWalletNonce(address: string) {
+  return apiFetch<{ message: string }>("/api/auth/wallet/nonce", {
+    method: "POST",
+    body: JSON.stringify({ address }),
+  });
+}
+
+export async function apiWalletVerify(address: string, message: string, signature: string) {
+  const res = await apiFetch<{ token: string; user: ApiUser }>(
+    "/api/auth/wallet/verify",
+    { method: "POST", body: JSON.stringify({ address, message, signature }) }
   );
   if (res.ok && res.data) setToken(res.data.token);
   return res;
@@ -159,114 +152,33 @@ export async function apiDeposit(amount: number) {
   });
 }
 
-// ── Admin ─────────────────────────────────────────────────────────
-export async function apiAdminGetMarkets(params?: { search?: string; status?: string; category?: string }) {
-  const q = new URLSearchParams();
-  if (params?.search)   q.set("search", params.search);
-  if (params?.status)   q.set("status", params.status);
-  if (params?.category) q.set("category", params.category);
-  const qs = q.toString();
-  return apiFetch<ApiMarket[]>(`/api/admin/markets${qs ? `?${qs}` : ""}`);
+// Real crypto deposit address (Polygon, USDT/USDC) — distinct from the
+// self-credit demo apiDeposit above. Creates one on first request.
+export async function apiGetDepositAddress() {
+  return apiFetch<{ address: string; chain: string }>("/api/wallet/deposit-address");
 }
 
-export async function apiAdminCreateMarket(data: {
-  title: string; category: string; type: string;
-  options: string[]; duration: string;
-  image?: string; banner?: string;
-  probabilities?: Record<string, number>;
-  resolution_source?: string;
-}) {
-  return apiFetch<ApiMarket>("/api/admin/markets", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+// ── Withdrawals ──────────────────────────────────────────────────
+export interface ApiWithdrawalRequest {
+  id: number;
+  amount: number;
+  destinationAddress: string;
+  status: "pending" | "approved" | "rejected" | "completed";
+  adminNote: string | null;
+  txHash: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
-export async function apiAdminUpdateMarket(id: number, updates: {
-  title?: string; category?: string; image?: string;
-  banner?: string; resolution_source?: string; status?: string;
-}) {
-  return apiFetch<ApiMarket>(`/api/admin/markets/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
-  });
-}
-
-export async function apiAdminDeleteMarket(id: number) {
-  return apiFetch(`/api/admin/markets/${id}`, { method: "DELETE" });
-}
-
-export async function apiAdminToggleMarket(id: number) {
-  return apiFetch<ApiMarket>(`/api/admin/markets/${id}/toggle`, { method: "PATCH" });
-}
-
-export async function apiAdminResolveMarket(id: number, result: string) {
-  return apiFetch<{
-    market:        ApiMarket;
-    settledTrades: number;
-    settlement:    SettlementBreakdown;
-  }>(
-    `/api/admin/resolve/${id}`,
-    { method: "PATCH", body: JSON.stringify({ result }) }
+export async function apiRequestWithdrawal(amount: number, destinationAddress: string) {
+  return apiFetch<{ id: number; amount: number; destinationAddress: string; status: string; createdAt: string }>(
+    "/api/wallet/withdraw",
+    { method: "POST", body: JSON.stringify({ amount, destinationAddress }) },
   );
 }
 
-export async function apiAdminGetStats() {
-  return apiFetch<{
-    totalMarkets: number; openMarkets: number; settledMarkets: number;
-    totalTrades: number; activeTrades: number; totalVolume: number; totalUsers: number;
-  }>("/api/admin/stats");
-}
-
-export async function apiAdminGetIncome() {
-  return apiFetch<{
-    totalIncome: number;
-    settledMarkets: number;
-    recentSettlements: {
-      id: number; title: string;
-      platformFee: number; prizePool: number;
-      volume: number; result: string | null;
-      createdAt: string;
-    }[];
-  }>("/api/admin/income");
-}
-
-export async function apiAdminGetUsers() {
-  return apiFetch<ApiUser[]>("/api/admin/users");
-}
-
-export async function apiAdminLogin(email: string, password: string) {
-  const res = await apiFetch<{ token: string; user: ApiUser }>(
-    "/api/auth/login",
-    { method: "POST", body: JSON.stringify({ email, password }) }
-  );
-  if (res.ok && res.data) {
-    if (!res.data.user.isAdmin) return { ok: false, error: "Not an admin account." };
-    // Store in the ADMIN token key — separate from the user token
-    setAdminToken(res.data.token);
-  }
-  return res;
-}
-
-// Validates the stored admin token against the backend
-// Returns the user if valid and is admin, null otherwise
-export async function apiValidateAdminToken(): Promise<ApiUser | null> {
-  const token = getAdminToken();
-  if (!token) return null;
-  try {
-    const res = await fetch(`${BASE_URL}/api/auth/me`, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    const user = json.data as ApiUser;
-    return user?.isAdmin ? user : null;
-  } catch {
-    return null;
-  }
+export async function apiGetMyWithdrawals() {
+  return apiFetch<ApiWithdrawalRequest[]>("/api/wallet/withdrawals");
 }
 
 // ── API Response Types (camelCase from backend) ───────────────────
@@ -283,6 +195,7 @@ export interface ApiUser {
   bio: string;
   avatar: string;
   joinedAt: string;
+  walletAddress: string | null;
 }
 
 export interface ApiMarket {
@@ -303,6 +216,9 @@ export interface ApiMarket {
   platformFee: number | null;
   prizePool: number | null;
   trending: boolean;
+  priceAssetId: string | null;
+  priceAssetSymbol: string | null;
+  openingPrice: number | null;
   createdAt: string;
   outcomes: ApiMarketOutcome[];
 }
@@ -316,14 +232,6 @@ export interface ApiMarketOutcome {
   createdAt: string;
 }
 
-export interface SettlementBreakdown {
-  totalPool:       number;
-  platformFee:     number;
-  platformFeeRate: number;
-  prizePool:       number;
-  winningOutcome:  string;
-}
-
 export interface ApiTrade {
   id: number;
   marketId: number;
@@ -333,11 +241,14 @@ export interface ApiTrade {
   status: 'active' | 'won' | 'lost';
   payoutAmount: number | null;
   lockedPayout?: number | null;
+  /** When the trade was settled (won/lost) — null while still active */
+  settledAt?: string | null;
   timestamp: string;
 }
 
 export interface ApiPriceHistory {
   probabilities: Record<string, number>;
+  assetPrice?: number | null;
   recordedAt: string;
 }
 

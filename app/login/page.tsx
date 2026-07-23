@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { useTheme } from "@/lib/themeStore";
-import { TrendingUp, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
+import { DEMO_USERS } from "@/lib/demoUsers";
+import { Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle2, ArrowRight, Users, Wallet } from "lucide-react";
+import Logo from "@/components/Logo";
+import WalletConnectModal from "@/components/WalletConnectModal";
 
 function LoginForm() {
   const router       = useRouter();
@@ -14,12 +17,21 @@ function LoginForm() {
   const { theme }    = useTheme();
   const isDark       = theme === "dark";
 
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [showPw, setShowPw]     = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
-  const [success, setSuccess]   = useState(false);
+  const [email, setEmail]           = useState("");
+  const [password, setPassword]     = useState("");
+  const [showPw, setShowPw]         = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState("");
+  const [success, setSuccess]       = useState(false);
+  const [showDemo, setShowDemo]     = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
+
+  const fillDemo = (demoEmail: string, demoPassword: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setError("");
+    setShowDemo(false);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +43,6 @@ function LoginForm() {
     const result = await userLogin(email.trim(), password);
     if (!result.ok) { setError(result.error || "Login failed."); setLoading(false); return; }
     setSuccess(true);
-    // Redirect to dashboard after login, or the requested redirect param
     const dest = redirect === "/" ? "/dashboard" : redirect;
     setTimeout(() => router.push(dest), 1000);
     setLoading(false);
@@ -39,15 +50,13 @@ function LoginForm() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      {showWallet && <WalletConnectModal onClose={() => setShowWallet(false)} />}
       <div style={{ width: "100%", maxWidth: 440 }}>
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <Link href="/" style={{ textDecoration: "none", display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #10b981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(16,185,129,0.3)" }}>
-              <TrendingUp size={28} color="white" />
-            </div>
-            <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.5px" }}>OUTCOMX</span>
+            <Logo size={44} />
           </Link>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 8 }}>Sign in to your account</p>
         </div>
@@ -64,10 +73,73 @@ function LoginForm() {
           ) : (
             <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
 
+              {/* Demo accounts toggle */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowDemo(!showDemo)}
+                  style={{
+                    width: "100%", padding: "11px 16px", borderRadius: 10,
+                    background: showDemo ? "var(--emerald-bg)" : "var(--bg-card-hover)",
+                    border: `1px solid ${showDemo ? "var(--emerald)" : "var(--border)"}`,
+                    color: showDemo ? "var(--emerald)" : "var(--text-secondary)",
+                    fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <Users size={15} />
+                  Try a Demo Account
+                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 400 }}>— no sign-up needed</span>
+                </button>
+
+                {showDemo && (
+                  <div className="fade-in" style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {DEMO_USERS.map((u) => (
+                      <button
+                        key={u.email}
+                        type="button"
+                        onClick={() => fillDemo(u.email, u.password)}
+                        style={{
+                          width: "100%", padding: "10px 14px", borderRadius: 10,
+                          background: "var(--bg-card-hover)", border: "1px solid var(--border)",
+                          cursor: "pointer", display: "flex", alignItems: "center",
+                          gap: 10, transition: "all 0.15s", textAlign: "left",
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLElement).style.borderColor = "var(--emerald)";
+                          (e.currentTarget as HTMLElement).style.background = "var(--emerald-bg)";
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                          (e.currentTarget as HTMLElement).style.background = "var(--bg-card-hover)";
+                        }}
+                      >
+                        <span style={{ fontSize: 22, flexShrink: 0 }}>{u.emoji}</span>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {u.label}
+                          </p>
+                          <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)" }}>
+                            {u.email}
+                          </p>
+                        </div>
+                        <span style={{ fontSize: 12, color: "var(--emerald)", fontWeight: 700, flexShrink: 0 }}>
+                          ${u.balance.toLocaleString()}
+                        </span>
+                      </button>
+                    ))}
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", margin: "4px 0 0" }}>
+                      Password for all demo accounts: <strong style={{ color: "var(--text-secondary)" }}>Demo1234!</strong>
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Divider */}
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>sign in with your email</span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>or sign in with your email</span>
                 <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
               </div>
 
@@ -105,6 +177,28 @@ function LoginForm() {
 
               <button type="submit" className="btn-emerald" disabled={loading} style={{ fontSize: 15, padding: "13px", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 {loading ? "Signing in…" : <><span>Sign In</span><ArrowRight size={16} /></>}
+              </button>
+
+              {/* Wallet divider */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>or</span>
+                <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowWallet(true)}
+                style={{
+                  fontSize: 14, padding: "11px", borderRadius: 10, fontWeight: 600,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  background: "var(--bg-card-hover)", border: "1px solid var(--border)",
+                  color: "var(--text-secondary)", cursor: "pointer", transition: "all 0.2s",
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--emerald)"; (e.currentTarget as HTMLElement).style.color = "var(--emerald)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)"; }}
+              >
+                <Wallet size={15} /> Connect Wallet
               </button>
             </form>
           )}

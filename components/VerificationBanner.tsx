@@ -5,6 +5,13 @@ import { useStore } from "@/lib/store";
 import { apiResendVerification } from "@/lib/api";
 import { Mail, X, CheckCircle2 } from "lucide-react";
 
+// Email verification is on hold until a custom domain is verified with Resend —
+// until then Resend can only deliver to the account's own address, so this
+// banner would send real users into a flow that can never reach them.
+// Flip NEXT_PUBLIC_EMAIL_VERIFICATION_ENABLED=true in .env.local once the
+// domain is live and FROM_EMAIL is switched over on the backend.
+const EMAIL_VERIFICATION_ENABLED = process.env.NEXT_PUBLIC_EMAIL_VERIFICATION_ENABLED === "true";
+
 export default function VerificationBanner() {
   const { isLoggedIn, userProfile } = useStore();
   const router = useRouter();
@@ -12,8 +19,8 @@ export default function VerificationBanner() {
   const [resending, setResending] = useState(false);
   const [sent, setSent] = useState(false);
 
-  // Only show when logged in and NOT verified
-  if (!isLoggedIn || userProfile.isVerified || dismissed) return null;
+  // Only show when enabled, logged in, and NOT verified
+  if (!EMAIL_VERIFICATION_ENABLED || !isLoggedIn || userProfile.isVerified || dismissed) return null;
 
   const handleResend = async () => {
     setResending(true);

@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { apiVerifyEmail, apiResendVerification } from "@/lib/api";
-import { TrendingUp, Mail, CheckCircle2, AlertCircle, ArrowRight, RefreshCw } from "lucide-react";
+import { Mail, CheckCircle2, AlertCircle, ArrowRight, RefreshCw } from "lucide-react";
+import Logo from "@/components/Logo";
 
 export default function VerifyEmailPage() {
   const router = useRouter();
@@ -124,10 +125,7 @@ export default function VerifyEmailPage() {
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <Link href="/" style={{ textDecoration: "none", display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #10b981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(16,185,129,0.3)" }}>
-              <TrendingUp size={28} color="white" />
-            </div>
-            <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.5px" }}>OUTCOMX</span>
+            <Logo size={44} />
           </Link>
         </div>
 
@@ -230,7 +228,7 @@ export default function VerifyEmailPage() {
               {/* Resend */}
               <div style={{ textAlign: "center" }}>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
-                  Didn't receive the code?
+                  Didn&apos;t receive the code?
                 </p>
                 <button
                   onClick={handleResend}

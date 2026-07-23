@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { apiGetMarketTrades, ApiMarketTrade } from "@/lib/api";
 import { useCurrency } from "@/lib/useCurrency";
+import { getSocket } from "@/lib/socket";
 import { Activity, TrendingUp, TrendingDown, Clock, RefreshCw } from "lucide-react";
 
 interface Props {
@@ -20,7 +21,10 @@ function getColor(option: string, index: number): string {
 }
 
 function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  // Normalise to UTC — add Z if no timezone offset present
+  const normalized = iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z";
+  const diff = Date.now() - new Date(normalized).getTime();
+  if (diff < 0) return "just now"; // clock skew guard
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -34,20 +38,39 @@ export default function RecentTrades({ marketId }: Props) {
   const { fmt } = useCurrency();
   const [trades, setTrades] = useState<ApiMarketTrade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, setTick] = useState(0); // forces re-render every second to keep times accurate
 
-  const fetchTrades = () => {
-    setLoading(true);
+  // Only show the spinner takeover on the very first load (no data yet).
+  // Background polling refreshes update the list in place once the new
+  // data arrives — the old list stays visible the whole time instead of
+  // clearing to a blank spinner every 30s.
+  const fetchTrades = (isInitial = false) => {
+    if (isInitial) setLoading(true);
     apiGetMarketTrades(marketId).then(res => {
       if (res.ok && res.data) setTrades(res.data);
-      setLoading(false);
+      if (isInitial) setLoading(false);
     });
   };
 
   useEffect(() => {
-    fetchTrades();
-    // Poll every 30s for near-live feel (replace with Socket.IO later)
-    const id = setInterval(fetchTrades, 30_000);
-    return () => clearInterval(id);
+    fetchTrades(true);
+
+    // Refetch (background, no spinner takeover) only when a trade actually
+    // lands on this market — replaces the old blind 30s poll. The event
+    // payload itself doesn't carry enough to render a row (trader label,
+    // option, timestamp), so a targeted refetch is simpler than growing it.
+    const socket = getSocket();
+    const onTradePlaced = (payload: { marketId: number }) => {
+      if (payload.marketId === marketId) fetchTrades(false);
+    };
+    socket.on("trade:placed", onTradePlaced);
+
+    // Tick every second so timeAgo labels stay accurate
+    const tickId = setInterval(() => setTick(t => t + 1), 1_000);
+    return () => {
+      socket.off("trade:placed", onTradePlaced);
+      clearInterval(tickId);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marketId]);
 
@@ -73,7 +96,7 @@ export default function RecentTrades({ marketId }: Props) {
           </span>
         )}
         <button
-          onClick={fetchTrades}
+          onClick={() => fetchTrades(true)}
           title="Refresh"
           style={{
             marginLeft: "auto", background: "none", border: "none",

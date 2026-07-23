@@ -1,9 +1,12 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Bell, TrendingUp, CheckCircle2, XCircle, Clock, X, Check, DollarSign } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useTheme } from "@/lib/themeStore";
-import { apiGetMyTrades } from "@/lib/api";
+import { getSocket } from "@/lib/socket";
+import { Trade, Market, parseApiDate } from "@/lib/types";
+import { apiGetBalance } from "@/lib/api";
+import { toast } from "@/lib/toastStore";
 
 interface Notification {
   id: string;
@@ -16,25 +19,25 @@ interface Notification {
 }
 
 function buildNotifications(
-  trades: ReturnType<typeof useStore>["trades"],
-  markets: ReturnType<typeof useStore>["markets"],
+  trades: Trade[],
+  markets: Market[],
   isLoggedIn: boolean
 ): Notification[] {
   const notifs: Notification[] = [];
   if (!isLoggedIn) return notifs;
 
-  // Won trades — show payout amount
+  // Won trades — timed by settlement, not placement: "won 2m ago" should
+  // mean the market resolved 2 minutes ago, not that the trade was placed then.
   trades
     .filter(t => t.status === "won")
     .slice(0, 5)
     .forEach(t => {
-      const profit = t.payoutAmount ? t.payoutAmount - t.amount : 0;
       notifs.push({
         id:      `won-${t.id}`,
         type:    "trade_won",
         title:   "🎉 Trade Won!",
         message: `Your ${t.option} trade on "${t.marketTitle}" won${t.payoutAmount ? ` · Payout pending` : ""}`,
-        time:    t.timestamp,
+        time:    t.settledAt ?? t.timestamp,
         read:    false,
         payout:  t.payoutAmount ?? undefined,
       });
@@ -50,7 +53,7 @@ function buildNotifications(
         type:    "trade_lost",
         title:   "Trade Settled",
         message: `Your ${t.option} trade on "${t.marketTitle}" did not win.`,
-        time:    t.timestamp,
+        time:    t.settledAt ?? t.timestamp,
         read:    false,
       });
     });
@@ -59,8 +62,7 @@ function buildNotifications(
   markets
     .filter(m => {
       if (m.status !== "open") return false;
-      const normalized = m.expiresAt.endsWith("Z") ? m.expiresAt : m.expiresAt + "Z";
-      const msLeft = new Date(normalized).getTime() - Date.now();
+      const msLeft = parseApiDate(m.expiresAt).getTime() - Date.now();
       return msLeft > 0 && msLeft < 30 * 60 * 1000;
     })
     .slice(0, 2)
@@ -75,12 +77,11 @@ function buildNotifications(
       });
     });
 
-  return notifs.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  return notifs.sort((a, b) => parseApiDate(b.time).getTime() - parseApiDate(a.time).getTime());
 }
 
 function timeAgo(iso: string): string {
-  const normalized = iso.endsWith("Z") ? iso : iso + "Z";
-  const diff = Date.now() - new Date(normalized).getTime();
+  const diff = Date.now() - parseApiDate(iso).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -106,56 +107,69 @@ export default function NotificationBell() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
 
-  // Track previous settled count to detect new wins/losses
-  const prevSettledRef = useRef(0);
-
-  // Poll for trade updates every 30s when user is logged in
-  // This catches settlements done by admin while user is browsing
-  const refreshTrades = useCallback(async () => {
-    if (!isLoggedIn) return;
-    const res = await apiGetMyTrades();
-    if (res.ok && res.data) {
-      const updatedTrades = res.data.map(t => ({
-        id:           t.id,
-        marketId:     t.marketId,
-        marketTitle:  t.marketTitle,
-        option:       t.option,
-        amount:       t.amount,
-        timestamp:    t.timestamp,
-        status:       t.status as "active" | "won" | "lost",
-        payoutAmount: t.payoutAmount ?? undefined,
-      }));
-
-      const prevTrades = useStore.getState().trades;
-      const newlySettled = updatedTrades.filter(t =>
-        t.status !== "active" &&
-        prevTrades.find(p => p.id === t.id)?.status === "active"
-      );
-
-      useStore.setState({ trades: updatedTrades });
-
-      // If new settlements detected, show a browser notification if permitted
-      if (newlySettled.length > 0 && "Notification" in window && Notification.permission === "granted") {
-        newlySettled.forEach(t => {
-          if (t.status === "won") {
-            new Notification("🎉 Trade Won — OUTCOMX", {
-              body: `Your ${t.option} trade on "${t.marketTitle}" won!`,
-              icon: "/favicon.ico",
-            });
-          }
-        });
-      }
-    }
-  }, [isLoggedIn]);
-
+  // Private per-user push — the backend only sends this to the socket that
+  // authenticated as this user (see src/socket.ts), so no other client ever
+  // sees it. Replaces the old 30s apiGetMyTrades() poll used to detect
+  // settlements (e.g. admin resolving a market) while the user was browsing.
   useEffect(() => {
     if (!isLoggedIn) return;
-    // Initial fetch
-    refreshTrades();
-    // Poll every 30 seconds
-    const id = setInterval(refreshTrades, 30_000);
-    return () => clearInterval(id);
-  }, [isLoggedIn, refreshTrades]);
+    const socket = getSocket();
+
+    const onTradeSettled = (payload: {
+      tradeId: number; marketId: number; marketTitle: string;
+      status: "won" | "lost"; payoutAmount: number;
+    }) => {
+      const trade = useStore.getState().trades.find(t => t.id === payload.tradeId);
+      if (!trade || trade.status !== "active") return; // already applied, or not ours to show
+
+      useStore.getState().patchTradeSettled(payload);
+
+      if (payload.status === "won" && "Notification" in window && Notification.permission === "granted") {
+        new Notification("🎉 Trade Won — OUTCOMX", {
+          body: `Your ${trade.option} trade on "${payload.marketTitle}" won!`,
+          icon: "/favicon.ico",
+        });
+      }
+    };
+
+    socket.on("trade:settled", onTradeSettled);
+    return () => { socket.off("trade:settled", onTradeSettled); };
+  }, [isLoggedIn]);
+
+  // Private per-user push for withdrawal status changes (approved/rejected/
+  // completed) — an admin can act on a request while the user is elsewhere
+  // in the app, so this replaces having to reopen the Withdraw tab to find out.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const socket = getSocket();
+
+    const onWithdrawalUpdated = (payload: {
+      withdrawalId: number; status: "approved" | "rejected" | "completed";
+      amount: number; txHash?: string | null;
+    }) => {
+      if (payload.status === "approved") {
+        toast(`Withdrawal request approved — funds will be sent shortly`, "success");
+      } else if (payload.status === "rejected") {
+        toast(`Withdrawal request rejected — amount refunded to your balance`, "info");
+      } else if (payload.status === "completed") {
+        toast(`Withdrawal sent! Funds are on their way to your wallet`, "success");
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("💸 Withdrawal Sent — OUTCOMX", {
+            body: `Your withdrawal has been sent to your wallet.`,
+            icon: "/favicon.ico",
+          });
+        }
+      }
+      // Rejection refunds the balance server-side — re-sync rather than
+      // guessing the new number client-side.
+      apiGetBalance().then(res => {
+        if (res.ok && res.data) useStore.setState({ balance: res.data.balance });
+      });
+    };
+
+    socket.on("withdrawal:updated", onWithdrawalUpdated);
+    return () => { socket.off("withdrawal:updated", onWithdrawalUpdated); };
+  }, [isLoggedIn]);
 
   // Request browser notification permission on first login
   useEffect(() => {

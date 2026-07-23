@@ -4,6 +4,7 @@ import { useStore } from "@/lib/store";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useCurrency } from "@/lib/useCurrency";
+import { parseApiDate } from "@/lib/types";
 import AuthGuard from "@/components/AuthGuard";
 import { ArrowLeft, TrendingUp, TrendingDown, Clock, Wallet } from "lucide-react";
 
@@ -17,7 +18,7 @@ export default function PortfolioPage() {
 
 function PortfolioContent() {
   const { trades, balance } = useStore();
-  const { fmt } = useCurrency();
+  const { fmtUSD, toLocal, fmt } = useCurrency();
 
   const totalInvested = trades.reduce((sum, t) => sum + t.amount, 0);
   const wonTrades     = trades.filter((t) => t.status === "won");
@@ -41,12 +42,12 @@ function PortfolioContent() {
         {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(155px, 1fr))", gap: 14, marginBottom: 28 }}>
           {[
-            { label: "Balance",        value: fmt(balance),        color: "var(--emerald)", icon: <Wallet size={17} /> },
-            { label: "Total Invested", value: fmt(totalInvested),  color: "#f59e0b",        icon: <TrendingUp size={17} /> },
-            { label: "Active Trades",  value: activeTrades.length, color: "#6366f1",        icon: <Clock size={17} /> },
-            { label: "Won",            value: wonTrades.length,    color: "var(--emerald)", icon: <TrendingUp size={17} /> },
-            { label: "Lost",           value: lostTrades.length,   color: "var(--red)",     icon: <TrendingDown size={17} /> },
-            { label: "Net P&L",        value: `${totalPnL >= 0 ? "+" : ""}${fmt(totalPnL)}`, color: totalPnL >= 0 ? "var(--emerald)" : "var(--red)", icon: totalPnL >= 0 ? <TrendingUp size={17} /> : <TrendingDown size={17} /> },
+            { label: "Balance",        value: fmtUSD(balance),        color: "var(--emerald)", icon: <Wallet size={17} /> },
+            { label: "Total Invested", value: fmtUSD(totalInvested),  color: "#f59e0b",        icon: <TrendingUp size={17} /> },
+            { label: "Active Trades",  value: activeTrades.length,    color: "#6366f1",        icon: <Clock size={17} /> },
+            { label: "Won",            value: wonTrades.length,       color: "var(--emerald)", icon: <TrendingUp size={17} /> },
+            { label: "Lost",           value: lostTrades.length,      color: "var(--red)",     icon: <TrendingDown size={17} /> },
+            { label: "Net P&L",        value: `${totalPnL >= 0 ? "+" : ""}${fmtUSD(totalPnL)}`, color: totalPnL >= 0 ? "var(--emerald)" : "var(--red)", icon: totalPnL >= 0 ? <TrendingUp size={17} /> : <TrendingDown size={17} /> },
           ].map((stat) => (
             <div key={stat.label} className="card" style={{ padding: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, color: stat.color }}>
@@ -86,7 +87,7 @@ function PortfolioContent() {
                       {trade.marketTitle}
                     </Link>
                     <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-                      {new Date(trade.timestamp).toLocaleString()}
+                      {parseApiDate(trade.timestamp).toLocaleString()}
                     </p>
                   </div>
 
@@ -96,17 +97,17 @@ function PortfolioContent() {
 
                   <div style={{ textAlign: "right" }}>
                     <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-                      {fmt(trade.amount)}
+                      {fmtUSD(trade.amount)}
                     </p>
                     {/* Show locked payout for active trades */}
                     {trade.status === "active" && trade.lockedPayout && (
                       <p style={{ fontSize: 11, fontWeight: 700, margin: "2px 0 0", color: "var(--emerald)" }}>
-                        🔒 Win: {fmt(trade.lockedPayout)}
+                        🔒 Win: {fmtUSD(trade.lockedPayout)}
                       </p>
                     )}
                     {pnl !== null && (
                       <p style={{ fontSize: 12, fontWeight: 700, margin: "2px 0 0", color: pnl >= 0 ? "var(--emerald)" : "var(--red)" }}>
-                        {pnl >= 0 ? "+" : ""}{fmt(pnl)}
+                        {pnl >= 0 ? "+" : ""}{fmtUSD(pnl)}
                       </p>
                     )}
                     <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, textTransform: "uppercase", ...(trade.status === "active" ? { background: "rgba(99,102,241,0.15)", color: "#6366f1" } : trade.status === "won" ? { background: "var(--emerald-bg)", color: "var(--emerald)" } : { background: "var(--red-bg)", color: "var(--red)" }) }}>

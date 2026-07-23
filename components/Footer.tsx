@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
-import { TrendingUp, ArrowUp, Mail, MapPin } from "lucide-react";
+import { ArrowUp, Mail, MapPin } from "lucide-react";
+import Logo from "@/components/Logo";
 
 const quickLinks = [
   { label: "FAQs",               href: "#" },
@@ -66,22 +67,7 @@ export default function Footer() {
           <div style={{ maxWidth: 260 }}>
             {/* Logo */}
             <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
-              <div style={{
-                width: 34, height: 34, borderRadius: 9,
-                background: "var(--footer-icon-bg)",
-                border: "1px solid var(--footer-border)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-              }}>
-                <TrendingUp size={18} color="var(--footer-accent)" />
-              </div>
-              <span style={{
-                fontSize: 18, fontWeight: 800,
-                color: "var(--footer-text)",
-                letterSpacing: "-0.5px",
-              }}>
-                OUTCOMX
-              </span>
+              <Logo size={30} textColor="var(--footer-text)" />
             </div>
 
             <p style={{

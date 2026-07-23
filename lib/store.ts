@@ -1,22 +1,24 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { Market, Trade, MarketCategory, MarketStatus, MarketDuration, UserProfile, calcExpiresAt } from "./types";
-import { REGION_CURRENCIES, DEFAULT_REGION, Region } from "./currency";
+import { Market, Trade, MarketCategory, MarketStatus, MarketDuration, UserProfile } from "./types";
+import {
+  DEFAULT_REGION,
+  STARTING_BALANCE_CREDITS, MIN_STAKE_CREDITS,
+  DisplayCurrencyCode,
+} from "./credits";
 import {
   apiLogin, apiRegister, apiLogout, apiGetMe,
   apiGetMarkets, apiPlaceTrade, apiGetMyTrades,
-  apiDeposit, apiAdminLogin, apiAdminCreateMarket,
-  apiAdminUpdateMarket, apiAdminDeleteMarket,
-  apiAdminToggleMarket, apiAdminResolveMarket,
-  apiAdminGetMarkets, apiUpdateProfile,
+  apiDeposit, apiUpdateProfile,
+  apiWalletVerify,
   clearToken, setToken, getToken,
-  clearAdminToken, apiValidateAdminToken,
   ApiMarket, ApiTrade, ApiUser,
 } from "./api";
+import { reconnectSocketAuth } from "./socket";
+import { findDemoUser, DEMO_EMAIL, DEMO_PASSWORD } from "./demoUsers";
 
-// ── Demo credentials (kept for offline fallback) ──────────────────
-export const DEMO_EMAIL    = "demo@outcomx.com";
-export const DEMO_PASSWORD = "demo123";
+// Re-export for any existing imports
+export { DEMO_EMAIL, DEMO_PASSWORD };
 
 // ── Convert API market → frontend Market type ─────────────────────
 function toMarket(m: ApiMarket): Market {
@@ -44,11 +46,17 @@ function toMarket(m: ApiMarket): Market {
     platformFee:      m.platformFee ?? null,
     prizePool:        m.prizePool ?? null,
     poolAmounts:      Object.keys(poolAmounts).length ? poolAmounts : undefined,
+    priceAssetId:     m.priceAssetId ?? null,
+    priceAssetSymbol: m.priceAssetSymbol ?? null,
+    openingPrice:     m.openingPrice ?? null,
   };
 }
 
 // ── Convert API trade → frontend Trade type ───────────────────────
-function toTrade(t: ApiTrade): Trade {
+// Exported so every call site (login, register, session restore) uses
+// the same mapping — a hand-duplicated copy is exactly how settledAt/
+// payoutAmount previously went missing on page-refresh session restore.
+export function toTrade(t: ApiTrade): Trade {
   return {
     id:            t.id,
     marketId:      t.marketId,
@@ -59,23 +67,33 @@ function toTrade(t: ApiTrade): Trade {
     status:        t.status as Trade["status"],
     payoutAmount:  t.payoutAmount ?? undefined,
     lockedPayout:  t.lockedPayout ?? undefined,
+    settledAt:     t.settledAt ?? undefined,
   };
 }
 
 // ── Convert API user → UserProfile ───────────────────────────────
-function toProfile(u: ApiUser): UserProfile {
+// displayCurrency is a pure client-side preference, independent of
+// region — callers should preserve any already-chosen value rather
+// than letting this default clobber it (see userLogin/userRegister).
+export function toProfile(u: ApiUser): UserProfile {
   return {
-    name:       u.name,
-    username:   u.username,
-    bio:        u.bio,
-    avatar:     u.avatar,
-    joinedAt:   u.joinedAt,
-    region:     u.region,
-    isVerified: u.isVerified,
+    name:            u.name,
+    username:        u.username,
+    bio:             u.bio,
+    avatar:          u.avatar,
+    joinedAt:        u.joinedAt,
+    region:          u.region,
+    isVerified:      u.isVerified,
+    displayCurrency: "USD",
   };
 }
 
 // ── Offline probability shift (used when backend unreachable) ─────
+// Divisor kept in sync with the backend's SHIFT_DIVISOR in marketService.ts —
+// calibrated for USD quick-stake amounts ($5/$20/$50/$100), not the old
+// Naira-scale trades.
+const OFFLINE_SHIFT_DIVISOR = 20;
+
 function shiftProbabilities(
   probs: Record<string, number>,
   option: string,
@@ -83,7 +101,7 @@ function shiftProbabilities(
 ): Record<string, number> {
   const keys = Object.keys(probs);
   if (keys.length < 2) return probs;
-  const shift = Math.min(Math.floor(amount / 5000), 3);
+  const shift = Math.min(Math.floor(amount / OFFLINE_SHIFT_DIVISOR), 3);
   if (shift === 0) return probs;
   const updated = { ...probs };
   updated[option] = Math.min(99, (updated[option] ?? 50) + shift);
@@ -102,10 +120,11 @@ function shiftProbabilities(
 interface AppState {
   isLoggedIn:      boolean;
   userEmail:       string;
-  isAdminLoggedIn: boolean;
   balance:         number;
   trades:          Trade[];
   markets:         Market[];
+  /** True once the first fetchMarkets() attempt has completed (success or fail) — gates skeleton loaders */
+  marketsLoaded:   boolean;
   activeCategory:  MarketCategory;
   activeDuration:  MarketDuration | "all";
   searchQuery:     string;
@@ -113,31 +132,33 @@ interface AppState {
   apiOnline:       boolean; // tracks if backend is reachable
 
   // Auth
-  userLogin:    (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  userLogout:   () => Promise<void>;
-  userRegister: (email: string, password: string, name: string, region: string) => Promise<{ ok: boolean; error?: string }>;
+  userLogin:      (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  userLogout:     () => Promise<void>;
+  userRegister:   (email: string, password: string, name: string, region: string) => Promise<{ ok: boolean; error?: string }>;
+  userWalletLogin: (address: string, message: string, signature: string) => Promise<{ ok: boolean; error?: string }>;
 
   // Markets
   fetchMarkets:  () => Promise<void>;
+  // Applies a real-time update (trade placed / settled / closed) to one
+  // already-loaded market in place — see components/RealtimeSync.tsx.
+  patchMarket:   (marketId: number, updates: Partial<Market>) => void;
   setActiveCategory: (cat: MarketCategory) => void;
   setActiveDuration: (d: MarketDuration | "all") => void;
   setSearchQuery:    (q: string) => void;
+  setDisplayCurrency: (code: DisplayCurrencyCode) => void;
   checkExpiredMarkets: () => void;
 
   // Trading
   placeTrade: (marketId: number, option: string, amount: number) => Promise<boolean>;
+  // Applies a private trade:settled push (see components/NotificationBell.tsx)
+  // to one already-loaded trade + the user's balance, in place — replaces
+  // the old 30s apiGetMyTrades() poll.
+  patchTradeSettled: (update: {
+    tradeId: number; status: "won" | "lost"; payoutAmount: number;
+  }) => void;
 
   // Wallet
   depositFunds: (amount: number) => Promise<boolean>;
-
-  // Admin
-  adminLogin:         (password: string) => Promise<boolean>;
-  adminLogout:        () => void;
-  createMarket:       (market: Omit<Market, "id" | "createdAt" | "volume" | "expiresAt"> & { probabilities?: Record<string, number> }) => Promise<void>;
-  updateMarket:       (id: number, updates: Partial<Market>) => Promise<void>;
-  deleteMarket:       (id: number) => Promise<void>;
-  resolveMarket:      (id: number, result: string) => Promise<import("./api").SettlementBreakdown | null>;
-  toggleMarketStatus: (id: number) => Promise<void>;
 
   // Profile
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
@@ -149,41 +170,45 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       isLoggedIn:      false,
       userEmail:       "",
-      isAdminLoggedIn: false,
       apiOnline:       true,
-      balance:         REGION_CURRENCIES[DEFAULT_REGION].startBalance,
+      balance:         STARTING_BALANCE_CREDITS,
       trades:          [],
-      markets:         [], // always fetched fresh from backend on load
+      markets:         [],
+      marketsLoaded:   false,
       activeCategory:  "all",
       activeDuration:  "all",
       searchQuery:     "",
       userProfile: {
-        name:     "Guest",
-        username: "guest",
-        bio:      "",
-        avatar:   "",
-        joinedAt: "",
-        region:   DEFAULT_REGION,
+        name:            "Guest",
+        username:        "guest",
+        bio:             "",
+        avatar:          "",
+        joinedAt:        "",
+        region:          DEFAULT_REGION,
+        displayCurrency: "USD",
       },
 
       setActiveCategory:   (cat) => set({ activeCategory: cat }),
       setActiveDuration:   (d)   => set({ activeDuration: d }),
       setSearchQuery:      (q)   => set({ searchQuery: q }),
+      setDisplayCurrency:  (code) => set((state) => ({
+        userProfile: { ...state.userProfile, displayCurrency: code },
+      })),
 
       // ── Fetch markets from backend ─────────────────────────────
       fetchMarkets: async () => {
         const res = await apiGetMarkets();
         if (res.ok && res.data) {
-          set((s) => {
-            // Merge: keep any admin-fetched markets not in the public response
-            // Public API only returns open markets, admin API returns all
-            const publicIds = new Set(res.data!.map((m: ApiMarket) => m.id));
-            const adminOnly = s.markets.filter(m => !publicIds.has(m.id));
-            return { markets: [...res.data!.map(toMarket), ...adminOnly], apiOnline: true };
-          });
+          set({ markets: res.data.map(toMarket), apiOnline: true, marketsLoaded: true });
         } else {
-          set((state) => ({ apiOnline: false, markets: state.markets }));
+          set((state) => ({ apiOnline: false, markets: state.markets, marketsLoaded: true }));
         }
+      },
+
+      patchMarket: (marketId, updates) => {
+        set((state) => ({
+          markets: state.markets.map(m => m.id === marketId ? { ...m, ...updates } : m),
+        }));
       },
 
       checkExpiredMarkets: () => {
@@ -206,7 +231,9 @@ export const useStore = create<AppState>()(
         const res = await apiLogin(email, password);
         if (res.ok && res.data) {
           const { user } = res.data;
-          const cfg = REGION_CURRENCIES[user.region as Region] ?? REGION_CURRENCIES[DEFAULT_REGION];
+          // Preserve any already-chosen local display-currency preference
+          // instead of letting toProfile()'s default clobber it.
+          const existingCurrency = get().userProfile.displayCurrency;
           // Fetch trades from backend
           const tradesRes = await apiGetMyTrades();
           set({
@@ -215,29 +242,28 @@ export const useStore = create<AppState>()(
             balance:     user.balance,
             apiOnline:   true,
             trades:      tradesRes.ok && tradesRes.data ? tradesRes.data.map(toTrade) : [],
-            userProfile: toProfile(user),
+            userProfile: { ...toProfile(user), displayCurrency: existingCurrency ?? "USD" },
           });
           // Refresh markets
           const marketsRes = await apiGetMarkets();
           if (marketsRes.ok && marketsRes.data) {
             set({ markets: marketsRes.data.map(toMarket) });
           }
+          reconnectSocketAuth();
           return { ok: true };
         }
-        // Offline fallback — check demo credentials
-        if (email.toLowerCase() === DEMO_EMAIL && password === DEMO_PASSWORD) {
-          const cfg = REGION_CURRENCIES[DEFAULT_REGION];
+        // Offline fallback — check demo credentials (all 7 demo accounts)
+        const demoUser = findDemoUser(email);
+        if (demoUser && password === demoUser.password) {
           set({
             isLoggedIn: true,
-            userEmail:  DEMO_EMAIL,
-            balance:    cfg.startBalance,
+            userEmail:  demoUser.email,
+            balance:    demoUser.balance,
             apiOnline:  false,
             trades:     [],
             userProfile: {
-              name: "Demo User", username: "demo_trader",
-              bio: "Demo Account – Simulated Trading",
-              avatar: "", joinedAt: new Date().toISOString().split("T")[0],
-              region: DEFAULT_REGION,
+              ...demoUser.profile,
+              displayCurrency: get().userProfile.displayCurrency ?? "USD",
             },
           });
           return { ok: true };
@@ -245,20 +271,50 @@ export const useStore = create<AppState>()(
         return { ok: false, error: res.error ?? "Invalid email or password." };
       },
 
+      // ── Auth: Wallet login ─────────────────────────────────────
+      // Mirrors userLogin's post-auth bookkeeping — the wallet-specific
+      // part (connect + sign) happens in WalletConnectModal before this
+      // is called with the resulting signature.
+      userWalletLogin: async (address, message, signature) => {
+        const res = await apiWalletVerify(address, message, signature);
+        if (res.ok && res.data) {
+          const { user } = res.data;
+          const existingCurrency = get().userProfile.displayCurrency;
+          const tradesRes = await apiGetMyTrades();
+          set({
+            isLoggedIn:  true,
+            userEmail:   user.email,
+            balance:     user.balance,
+            apiOnline:   true,
+            trades:      tradesRes.ok && tradesRes.data ? tradesRes.data.map(toTrade) : [],
+            userProfile: { ...toProfile(user), displayCurrency: existingCurrency ?? "USD" },
+          });
+          const marketsRes = await apiGetMarkets();
+          if (marketsRes.ok && marketsRes.data) {
+            set({ markets: marketsRes.data.map(toMarket) });
+          }
+          reconnectSocketAuth();
+          return { ok: true };
+        }
+        return { ok: false, error: res.error ?? "Wallet sign-in failed." };
+      },
+
       // ── Auth: Logout ──────────────────────────────────────────
       userLogout: async () => {
         await apiLogout();
         set({
           isLoggedIn:      false,
-          isAdminLoggedIn: false,
           userEmail:       "",
           trades:          [],
-          balance:         REGION_CURRENCIES[DEFAULT_REGION].startBalance,
+          balance:         STARTING_BALANCE_CREDITS,
           userProfile: {
             name: "Guest", username: "guest",
-            bio: "", avatar: "", joinedAt: "", region: DEFAULT_REGION,
+            bio: "", avatar: "", joinedAt: "",
+            region: DEFAULT_REGION,
+            displayCurrency: "USD",
           },
         });
+        reconnectSocketAuth();
       },
 
       // ── Auth: Register ────────────────────────────────────────
@@ -266,31 +322,33 @@ export const useStore = create<AppState>()(
         const res = await apiRegister(email, password, name, region);
         if (res.ok && res.data) {
           const { user } = res.data;
+          const existingCurrency = get().userProfile.displayCurrency;
           set({
             isLoggedIn:  true,
             userEmail:   user.email,
             balance:     user.balance,
             apiOnline:   true,
             trades:      [],
-            userProfile: toProfile(user),
+            userProfile: { ...toProfile(user), displayCurrency: existingCurrency ?? "USD" },
           });
           const marketsRes = await apiGetMarkets();
           if (marketsRes.ok && marketsRes.data) {
             set({ markets: marketsRes.data.map(toMarket) });
           }
+          reconnectSocketAuth();
           return { ok: true };
         }
         return { ok: false, error: res.error ?? "Registration failed." };
       },
 
       // ── Place trade ───────────────────────────────────────────
+      // amount is ALWAYS in credits (converted by TradePanel before calling)
       placeTrade: async (marketId, option, amount) => {
-        const { isLoggedIn, balance, markets, userProfile, apiOnline } = get();
+        const { isLoggedIn, balance, markets, apiOnline } = get();
         if (!isLoggedIn) return false;
 
-        const region   = (userProfile.region || DEFAULT_REGION) as Region;
-        const minStake = REGION_CURRENCIES[region]?.minStake ?? 500;
-        if (amount < minStake || amount > balance) return false;
+        // Validate in credits
+        if (amount < MIN_STAKE_CREDITS || amount > balance) return false;
 
         if (apiOnline) {
           const res = await apiPlaceTrade(marketId, option, amount);
@@ -332,7 +390,22 @@ export const useStore = create<AppState>()(
         return true;
       },
 
+      patchTradeSettled: ({ tradeId, status, payoutAmount }) => {
+        set((state) => ({
+          trades: state.trades.map(t =>
+            t.id === tradeId
+              ? { ...t, status, payoutAmount, settledAt: new Date().toISOString() }
+              : t
+          ),
+          // Balance already reflects the payout server-side by the time this
+          // push arrives (settlement happens before the event fires) — apply
+          // the same credit here so the UI doesn't wait for a full refetch.
+          balance: status === "won" ? state.balance + payoutAmount : state.balance,
+        }));
+      },
+
       // ── Deposit ───────────────────────────────────────────────
+      // amount is in credits
       depositFunds: async (amount) => {
         const { apiOnline } = get();
         if (apiOnline) {
@@ -347,210 +420,30 @@ export const useStore = create<AppState>()(
         set((state) => ({ balance: state.balance + amount }));
         return true;
       },
-
-      // ── Admin: Login ──────────────────────────────────────────
-      // Tries backend first. Backend admin email: admin@outcomx.com
-      // If backend rejects, falls back to offline mode with admin123
-      adminLogin: async (password) => {
-        // Try backend — the typed password IS the admin password
-        const res = await apiAdminLogin("admin@outcomx.com", password);
-        if (res.ok && res.data?.user?.isAdmin) {
-          set({ isAdminLoggedIn: true, apiOnline: true });
-          return true;
-        }
-        // Backend rejected — use offline mode (admin123 only)
-        if (password === "admin123") {
-          set({ isAdminLoggedIn: true, apiOnline: false });
-          return true;
-        }
-        return false;
-      },
-
-      adminLogout: () => {
-        clearToken();
-        clearAdminToken();
-        set({ isAdminLoggedIn: false });
-      },
-
-      // ── Admin: Create market ──────────────────────────────────
-      createMarket: async (marketData) => {
-        const { apiOnline, markets } = get();
-        if (apiOnline) {
-          const res = await apiAdminCreateMarket({
-            title:             marketData.title,
-            category:          marketData.category,
-            type:              marketData.type,
-            options:           marketData.options,
-            duration:          marketData.duration,
-            image:             marketData.image,
-            banner:            marketData.banner,
-            resolution_source: marketData.resolutionSource,
-            probabilities:     marketData.probabilities,
-          });
-          if (res.ok && res.data) {
-            set((state) => ({ markets: [toMarket(res.data!), ...state.markets] }));
-            // Re-fetch ALL markets (not just open) so admin manage page sees the new one
-            await new Promise(r => setTimeout(r, 300));
-            const allRes = await apiAdminGetMarkets();
-            if (allRes.ok && allRes.data) {
-              set({ markets: allRes.data.map(toMarket) });
-            }
-            return;
-          }
-          console.warn("createMarket API failed:", res.error);
-        }
-        // Offline fallback
-        const newId = Math.max(...markets.map((m) => m.id), 0) + 1;
-        const probs: Record<string, number> = marketData.probabilities ?? {};
-        if (Object.keys(probs).length === 0) {
-          const equalShare = Math.floor(100 / marketData.options.length);
-          marketData.options.forEach((opt, i) => {
-            probs[opt] = i === 0 ? 100 - equalShare * (marketData.options.length - 1) : equalShare;
-          });
-        }
-        const newMarket: Market = {
-          ...marketData, id: newId,
-          createdAt: new Date().toISOString().split("T")[0],
-          volume: 0, probabilities: probs,
-          expiresAt: calcExpiresAt(marketData.duration), trending: false,
-        };
-        set((state) => ({ markets: [newMarket, ...state.markets] }));
-      },
-
-      // ── Admin: Update market ──────────────────────────────────
-      updateMarket: async (id, updates) => {
-        const { apiOnline } = get();
-        if (apiOnline) {
-          const res = await apiAdminUpdateMarket(id, {
-            title:             updates.title,
-            category:          updates.category,
-            image:             updates.image,
-            banner:            updates.banner,
-            resolution_source: updates.resolutionSource,
-            status:            updates.status,
-          });
-          if (res.ok && res.data) {
-            set((state) => ({
-              markets: state.markets.map((m) => m.id === id ? toMarket(res.data!) : m),
-            }));
-            return;
-          }
-        }
-        // Offline fallback
-        set((state) => ({
-          markets: state.markets.map((m) => {
-            if (m.id !== id) return m;
-            const updated = { ...m, ...updates };
-            if (updates.duration && updates.duration !== m.duration) {
-              updated.expiresAt = calcExpiresAt(updates.duration);
-            }
-            return updated;
-          }),
-        }));
-      },
-
-      // ── Admin: Delete market ──────────────────────────────────
-      deleteMarket: async (id) => {
-        const { apiOnline } = get();
-        if (apiOnline) {
-          const res = await apiAdminDeleteMarket(id);
-          if (res.ok) {
-            set((state) => ({ markets: state.markets.filter((m) => m.id !== id) }));
-          }
-          return;
-        }
-        set((state) => ({ markets: state.markets.filter((m) => m.id !== id) }));
-      },
-
-      // ── Admin: Resolve market ─────────────────────────────────
-      resolveMarket: async (id, result) => {
-        const { apiOnline } = get();
-        if (apiOnline) {
-          const res = await apiAdminResolveMarket(id, result);
-          if (res.ok && res.data) {
-            // Update market in store with full settled market from backend
-            set((state) => ({
-              markets: state.markets.map((m) =>
-                m.id === id ? toMarket(res.data!.market) : m
-              ),
-              // Update trade statuses — backend has already credited balances
-              trades: state.trades.map((t) => {
-                if (t.marketId === id && t.status === "active") {
-                  return { ...t, status: t.option === result ? "won" as const : "lost" as const };
-                }
-                return t;
-              }),
-            }));
-            return res.data.settlement;
-          }
-        }
-        // Offline fallback — no fee calculation, just mark status
-        set((state) => ({
-          markets: state.markets.map((m) =>
-            m.id === id ? { ...m, result, status: "settled" as MarketStatus } : m
-          ),
-          trades: state.trades.map((t) => {
-            if (t.marketId === id && t.status === "active") {
-              return { ...t, status: t.option === result ? "won" as const : "lost" as const };
-            }
-            return t;
-          }),
-        }));
-        return null;
-      },
-
-      // ── Admin: Toggle market status ───────────────────────────
-      toggleMarketStatus: async (id) => {
-        const { apiOnline, markets } = get();
-        if (apiOnline) {
-          const res = await apiAdminToggleMarket(id);
-          if (res.ok && res.data) {
-            set((state) => ({
-              markets: state.markets.map((m) => m.id === id ? toMarket(res.data!) : m),
-            }));
-            return;
-          }
-        }
-        // Offline fallback
-        set((state) => ({
-          markets: state.markets.map((m) => {
-            if (m.id !== id) return m;
-            const next: MarketStatus = m.status === "open" ? "closed" : "open";
-            return { ...m, status: next };
-          }),
-        }));
-      },
-
       // ── Update profile ────────────────────────────────────────
       updateProfile: async (updates) => {
         const { apiOnline } = get();
         if (apiOnline) {
           const res = await apiUpdateProfile(updates as Record<string, unknown>);
           if (res.ok && res.data) {
-            const user = res.data;
             set((state) => ({
-              userProfile: toProfile(user),
-              balance: user.balance,
+              // displayCurrency has no backend field — preserve the local preference
+              userProfile: { ...toProfile(res.data!), displayCurrency: state.userProfile.displayCurrency },
+              balance: res.data!.balance,
             }));
             return;
           }
         }
-        // Offline fallback
-        set((state) => {
-          const newProfile = { ...state.userProfile, ...updates };
-          if (updates.region && updates.region !== state.userProfile.region) {
-            const cfg = REGION_CURRENCIES[updates.region as Region];
-            if (cfg) return { userProfile: newProfile, balance: cfg.startBalance };
-          }
-          return { userProfile: newProfile };
-        });
+        // Offline fallback — just update profile fields, no balance change
+        set((state) => ({
+          userProfile: { ...state.userProfile, ...updates },
+        }));
       },
     }),
     {
       name: "outcomx-v6",
       partialize: (state) => ({
         isLoggedIn:      state.isLoggedIn,
-        isAdminLoggedIn: state.isAdminLoggedIn,
         userEmail:       state.userEmail,
         balance:         state.balance,
         trades:          state.trades,

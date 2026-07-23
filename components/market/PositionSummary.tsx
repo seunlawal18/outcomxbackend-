@@ -59,7 +59,7 @@ export default function PositionSummary({ market }: Props) {
         {/* Stats row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
           {[
-            { label: "Total Staked",  value: fmt(totalStaked),      color: "#f59e0b",        icon: <Wallet size={13} /> },
+            { label: "Total Staked",  value: fmt(totalStaked),    color: "#f59e0b",        icon: <Wallet size={13} /> },
             { label: "Active",        value: activeTrades.length,   color: "#6366f1",        icon: <Clock size={13} /> },
             { label: "Won",           value: wonTrades.length,      color: "var(--emerald)", icon: <TrendingUp size={13} /> },
             { label: "Lost",          value: lostTrades.length,     color: "var(--red)",     icon: <TrendingDown size={13} /> },

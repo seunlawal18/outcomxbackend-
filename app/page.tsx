@@ -8,28 +8,21 @@ import Footer from "@/components/Footer";
 import DurationSidebar from "@/components/DurationSidebar";
 import MobileDurationBar from "@/components/MobileDurationBar";
 import NewsSlideshow from "@/components/NewsSlideshow";
+import { MarketGridSkeleton } from "@/components/MarketCardSkeleton";
+import { parseApiDate } from "@/lib/types";
 import { Flame, TrendingUp, ChevronDown } from "lucide-react";
 
 export default function HomePage() {
-  const { markets, activeCategory, activeDuration, searchQuery, checkExpiredMarkets, fetchMarkets } = useStore();
+  const { markets, marketsLoaded, activeCategory, activeDuration, searchQuery, checkExpiredMarkets } = useStore();
 
   useEffect(() => {
-    // Check for expired markets every 30s
+    // Client-side safety net only — real closes/settlements now arrive live
+    // via RealtimeSync (Socket.IO), this just catches the rare case where an
+    // expiry passes while the socket happens to be disconnected. No API call.
     checkExpiredMarkets();
     const expiredId = setInterval(checkExpiredMarkets, 30_000);
-
-    // Auto-refresh markets from backend every 30s so users see:
-    // - new markets added by admin
-    // - updated odds after other users trade
-    const refreshId = setInterval(() => {
-      fetchMarkets();
-    }, 30_000);
-
-    return () => {
-      clearInterval(expiredId);
-      clearInterval(refreshId);
-    };
-  }, [checkExpiredMarkets, fetchMarkets]);
+    return () => clearInterval(expiredId);
+  }, [checkExpiredMarkets]);
 
   const filtered = useMemo(() => {
     return markets.filter((m) => {
@@ -39,7 +32,7 @@ export default function HomePage() {
       const matchCat = activeCategory === "all"
         ? true
         : activeCategory === "new"
-        ? Date.now() - new Date(m.createdAt).getTime() < 48 * 60 * 60 * 1000
+        ? Date.now() - parseApiDate(m.createdAt).getTime() < 48 * 60 * 60 * 1000
         : m.category === activeCategory;
       const matchDur    = activeDuration === "all" || m.duration === activeDuration;
       const matchSearch = !searchQuery ||
@@ -123,14 +116,16 @@ export default function HomePage() {
                 </span>
               </div>
 
-              {filtered.length === 0 ? (
+              {!marketsLoaded ? (
+                <MarketGridSkeleton />
+              ) : filtered.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-secondary)" }}>
                   <TrendingUp size={40} style={{ margin: "0 auto 16px", opacity: 0.2 }} />
                   <p style={{ fontSize: 16, color: "var(--text-primary)" }}>No markets found</p>
                   <p style={{ fontSize: 13, marginTop: 4 }}>Try a different filter or search term</p>
                 </div>
               ) : (
-                <div className="markets-grid">
+                <div className="markets-grid fade-in">
                   {filtered.map((m) => (
                     <MarketCard key={m.id} market={m} />
                   ))}

@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { useTheme } from "@/lib/themeStore";
-import { REGION_OPTIONS, REGION_CURRENCIES, Region } from "@/lib/currency";import {
-  TrendingUp, Mail, Lock, Eye, EyeOff, User,
+import { REGION_OPTIONS, Region } from "@/lib/credits";
+import Logo from "@/components/Logo";
+import {
+  Mail, Lock, Eye, EyeOff, User,
   AlertCircle, CheckCircle2, ArrowRight, Phone, Globe,
 } from "lucide-react";
 
@@ -42,7 +44,7 @@ export default function RegisterPage() {
   const [error, setError]       = useState("");
   const [success, setSuccess]   = useState(false);
 
-  const cfg = REGION_CURRENCIES[region];
+  const regionFlag = REGION_OPTIONS.find(r => r.value === region)?.flag ?? "🌍";
 
   const pwStrength = (() => {
     if (!password.length) return 0;
@@ -95,13 +97,10 @@ export default function RegisterPage() {
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <Link href="/" style={{ textDecoration: "none", display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(135deg, #10b981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 24px rgba(16,185,129,0.3)" }}>
-              <TrendingUp size={26} color="white" />
-            </div>
-            <span style={{ fontSize: 20, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.5px" }}>OUTCOMX</span>
+            <Logo size={42} />
           </Link>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 6 }}>
-            Create your free account · Start with {cfg.symbol}{cfg.startBalance.toLocaleString(cfg.locale)}
+            Create your free account · Fund your wallet to start trading
           </p>
         </div>
 
@@ -128,8 +127,8 @@ export default function RegisterPage() {
                 <CheckCircle2 size={32} color="var(--emerald)" />
               </div>
               <h2 style={{ fontSize: 20, fontWeight: 800, color: "var(--text-primary)", margin: "0 0 8px" }}>Account Created!</h2>
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 4 }}>Welcome to OUTCOMX, {fullName.split(" ")[0]}! {cfg.flag}</p>
-              <p style={{ fontSize: 13, color: "var(--emerald)", fontWeight: 600 }}>{cfg.symbol}{cfg.startBalance.toLocaleString(cfg.locale)} added to your balance</p>
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 4 }}>Welcome to OUTCOMX, {fullName.split(" ")[0]}! {regionFlag}</p>
+              <p style={{ fontSize: 13, color: "var(--emerald)", fontWeight: 600 }}>Deposit funds to place your first trade</p>
             </div>
           ) : step === 1 ? (
             <form onSubmit={handleNext} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -150,11 +149,10 @@ export default function RegisterPage() {
               {/* Region selector */}
               <div>
                 <p style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6 }}>
-                  <Globe size={13} /> Region & Currency
+                  <Globe size={13} /> Region
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8 }}>
                   {REGION_OPTIONS.map(({ value, label, flag }) => {
-                    const rcfg = REGION_CURRENCIES[value];
                     const isSelected = region === value;
                     return (
                       <button key={value} type="button" onClick={() => setRegion(value)} style={{
@@ -168,20 +166,9 @@ export default function RegisterPage() {
                       }}>
                         <span style={{ fontSize: 20 }}>{flag}</span>
                         <span style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
-                        <span style={{ fontSize: 11, opacity: 0.75 }}>{rcfg.symbol} {rcfg.code}</span>
                       </button>
                     );
                   })}
-                </div>
-                {/* Selected currency info */}
-                <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "var(--emerald-bg)", border: "1px solid var(--emerald-border)", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 18 }}>{cfg.flag}</span>
-                  <div>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: "var(--emerald)", margin: 0 }}>{cfg.name} ({cfg.code})</p>
-                    <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
-                      Starting balance: {cfg.symbol}{cfg.startBalance.toLocaleString(cfg.locale)} · Min stake: {cfg.symbol}{cfg.minStake.toLocaleString(cfg.locale)}
-                    </p>
-                  </div>
                 </div>
               </div>
 
@@ -255,13 +242,13 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              {/* Bonus badge */}
+              {/* Funding note */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, background: "var(--emerald-bg)", border: "1px solid var(--emerald-border)" }}>
-                <span style={{ fontSize: 22 }}>{cfg.flag}</span>
+                <span style={{ fontSize: 22 }}>{regionFlag}</span>
                 <div>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "var(--emerald)", margin: 0 }}>Welcome Bonus — {cfg.name}</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "var(--emerald)", margin: 0 }}>Your wallet starts at $0.00</p>
                   <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
-                    {cfg.symbol}{cfg.startBalance.toLocaleString(cfg.locale)} added instantly · Min stake {cfg.symbol}{cfg.minStake.toLocaleString(cfg.locale)}
+                    Deposit funds after signup to start trading
                   </p>
                 </div>
               </div>

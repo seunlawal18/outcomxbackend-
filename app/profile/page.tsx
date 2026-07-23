@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useCurrency } from "@/lib/useCurrency";
+import { parseApiDate } from "@/lib/types";
 import AuthGuard from "@/components/AuthGuard";
 import {
   ArrowLeft, Camera, Edit3, Save, X, TrendingUp,
@@ -22,7 +23,7 @@ export default function ProfilePage() {
 
 function ProfileContent() {
   const { userProfile, updateProfile, balance, trades, markets } = useStore();
-  const { fmt, cfg } = useCurrency();
+  const { fmt, fmtUSD, cfg, toLocal } = useCurrency();
   const [editing, setEditing]   = useState(false);
   const [name, setName]         = useState(userProfile.name);
   const [username, setUsername] = useState(userProfile.username);
@@ -152,7 +153,7 @@ function ProfileContent() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <Calendar size={13} color="var(--text-muted)" />
                   <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    Joined {new Date(userProfile.joinedAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                    Joined {parseApiDate(userProfile.joinedAt).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
                   </span>
                 </div>
               </div>
@@ -163,7 +164,7 @@ function ProfileContent() {
         {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
           {[
-            { label: "Balance",      value: fmt(balance),        color: "var(--emerald)", icon: <Wallet size={16} /> },            { label: "Total Trades", value: trades.length,       color: "#6366f1",        icon: <BarChart2 size={16} /> },
+            { label: "Balance",      value: fmtUSD(balance),     color: "var(--emerald)", icon: <Wallet size={16} /> },            { label: "Total Trades", value: trades.length,       color: "#6366f1",        icon: <BarChart2 size={16} /> },
             { label: "Active",       value: activeTrades.length, color: "#f59e0b",        icon: <Clock size={16} /> },
             { label: "Won",          value: wonTrades.length,    color: "var(--emerald)", icon: <TrendingUp size={16} /> },
             { label: "Lost",         value: lostTrades.length,   color: "var(--red)",     icon: <TrendingDown size={16} /> },
@@ -201,10 +202,10 @@ function ProfileContent() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.marketTitle}</p>
-                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0 0" }}>{t.option} · {new Date(t.timestamp).toLocaleDateString()}</p>
+                  <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0 0" }}>{t.option} · {parseApiDate(t.timestamp).toLocaleDateString()}</p>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>{fmt(t.amount)}</p>                  <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 20, textTransform: "uppercase", background: t.status === "won" ? "var(--emerald-bg)" : t.status === "lost" ? "var(--red-bg)" : "rgba(99,102,241,0.1)", color: t.status === "won" ? "var(--emerald)" : t.status === "lost" ? "var(--red)" : "#6366f1" }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>{fmtUSD(t.amount)}</p>                  <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 20, textTransform: "uppercase", background: t.status === "won" ? "var(--emerald-bg)" : t.status === "lost" ? "var(--red-bg)" : "rgba(99,102,241,0.1)", color: t.status === "won" ? "var(--emerald)" : t.status === "lost" ? "var(--red)" : "#6366f1" }}>
                     {t.status}
                   </span>
                 </div>
@@ -232,10 +233,18 @@ function ProfileContent() {
             <div className="card" style={{ padding: 18 }}>
               <h2 style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 14 }}>Investment Summary</h2>
               {[
-                { label: "Starting Balance", value: `${cfg.symbol}${cfg.startBalance.toLocaleString(cfg.locale, {minimumFractionDigits:2})}`,                                                                                                                    color: "var(--text-primary)" },
-                { label: "Total Invested",   value: fmt(totalInvested),                                                                                                              color: "#f59e0b"             },
-                { label: "Current Balance",  value: fmt(balance),                                                                                                                    color: "var(--emerald)"      },
-                { label: "Net P&L",          value: `${balance - cfg.startBalance >= 0 ? "+" : "-"}${cfg.symbol}${Math.abs(balance - cfg.startBalance).toLocaleString(cfg.locale, { minimumFractionDigits: 2 })}`,       color: balance >= cfg.startBalance ? "var(--emerald)" : "var(--red)" },
+                { label: "Starting Balance", value: `${cfg.symbol}${cfg.startBalance.toLocaleString(cfg.locale, { minimumFractionDigits: cfg.decimals })}`,  color: "var(--text-primary)" },
+                { label: "Total Invested",   value: fmtUSD(totalInvested),                                                                                   color: "#f59e0b"             },
+                { label: "Current Balance",  value: fmtUSD(balance),                                                                                         color: "var(--emerald)"      },
+                {
+                  label: "Net P&L",
+                  value: (() => {
+                    const localBal = toLocal(balance);
+                    const diff = localBal - cfg.startBalance;
+                    return `${diff >= 0 ? "+" : "-"}${cfg.symbol}${Math.abs(diff).toLocaleString(cfg.locale, { minimumFractionDigits: cfg.decimals })}`;
+                  })(),
+                  color: toLocal(balance) >= cfg.startBalance ? "var(--emerald)" : "var(--red)",
+                },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{label}</span>

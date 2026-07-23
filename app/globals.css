@@ -184,6 +184,20 @@ body {
   font-size: 14px;
 }
 .input-dark:focus { border-color: var(--emerald); }
+
+/* ─── FOCUS RING (keyboard navigation) ─────────────────────────── */
+/* Only shows for keyboard focus (:focus-visible), never on mouse click,
+   so it doesn't fight the existing hover/active styles. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--emerald);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 .input-dark::placeholder { color: var(--text-muted); }
 
 /* ─── SIDEBAR ───────────────────────────────────────────────────── */
@@ -230,11 +244,38 @@ body {
 }
 .fade-in { animation: fadeIn 0.28s ease forwards; }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .slide-up { animation: slideUp 0.35s ease forwards; }
+
+/* ─── SKELETON LOADING ──────────────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { opacity: 0.55; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+.skeleton-bone {
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* ─── REDUCED MOTION ────────────────────────────────────────────── */
+/* Respect the OS-level "reduce motion" accessibility setting: keep
+   state changes (hover, focus, loading) but drop decorative motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ─── THEME TOGGLE ──────────────────────────────────────────────── */
 .theme-toggle {

@@ -1,19 +1,20 @@
 "use client";
 import { useStore } from "@/lib/store";
 import { useTheme } from "@/lib/themeStore";
-import { MarketCategory } from "@/lib/types";
+import { MarketCategory, parseApiDate } from "@/lib/types";
+import { CATEGORY_ICONS } from "@/lib/categoryIcons";
 import { useScrollDirection } from "@/lib/useScrollDirection";
 
-const categories: { id: MarketCategory; label: string; emoji: string; badge?: string }[] = [
-  { id: "all",           label: "All",           emoji: "🌐" },
-  { id: "new",           label: "New",           emoji: "✨", badge: "NEW" },
-  { id: "sports",        label: "Sports",        emoji: "⚽" },
-  { id: "crypto",        label: "Crypto",        emoji: "₿"  },
-  { id: "politics",      label: "Politics",      emoji: "🏛️" },
-  { id: "finance",       label: "Finance",       emoji: "📈" },
-  { id: "esports",       label: "Esports",       emoji: "🎮" },
-  { id: "entertainment", label: "Entertainment", emoji: "🎬" },
-  { id: "economy",       label: "Economy",       emoji: "💹" },
+const categories: { id: MarketCategory; label: string; badge?: string }[] = [
+  { id: "all",           label: "All" },
+  { id: "new",           label: "New", badge: "NEW" },
+  { id: "sports",        label: "Sports" },
+  { id: "crypto",        label: "Crypto" },
+  { id: "politics",      label: "Politics" },
+  { id: "finance",       label: "Finance" },
+  { id: "esports",       label: "Esports" },
+  { id: "entertainment", label: "Entertainment" },
+  { id: "economy",       label: "Economy" },
 ];
 
 export default function CategoryBar() {
@@ -28,7 +29,7 @@ export default function CategoryBar() {
   const mobileHidden = scrollDir === "down";
 
   const newCount = markets.filter((m) => {
-    const created = new Date(m.createdAt).getTime();
+    const created = parseApiDate(m.createdAt).getTime();
     return Date.now() - created < 48 * 60 * 60 * 1000 && m.status === "open";
   }).length;
 
@@ -55,6 +56,7 @@ export default function CategoryBar() {
       }}>
         {categories.map((cat) => {
           const isActive = activeCategory === cat.id;
+          const Icon = CATEGORY_ICONS[cat.id];
           return (
             <button
               key={cat.id}
@@ -62,7 +64,7 @@ export default function CategoryBar() {
               onClick={() => setActiveCategory(cat.id)}
               style={{ position: "relative", flex: 1, justifyContent: "center", display: "flex", alignItems: "center" }}
             >
-              <span style={{ marginRight: 5 }}>{cat.emoji}</span>
+              <Icon size={14} style={{ marginRight: 5 }} />
               {cat.label}
               {cat.id === "new" && newCount > 0 && (
                 <span style={{
@@ -93,14 +95,15 @@ export default function CategoryBar() {
         }}>
           {categories.map((cat) => {
             const isActive = activeCategory === cat.id;
+            const Icon = CATEGORY_ICONS[cat.id];
             return (
               <button
                 key={cat.id}
                 className={`category-pill ${isActive ? "active" : ""}`}
                 onClick={() => setActiveCategory(cat.id)}
-                style={{ position: "relative" }}
+                style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
               >
-                <span style={{ marginRight: 5 }}>{cat.emoji}</span>
+                <Icon size={14} style={{ marginRight: 5 }} />
                 {cat.label}
                 {cat.id === "new" && newCount > 0 && (
                   <span style={{

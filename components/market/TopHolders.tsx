@@ -108,7 +108,7 @@ export default function TopHolders({ marketId }: Props) {
 
                 {/* Staked */}
                 <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", textAlign: "right" }}>
-                  {fmt(h.totalStaked)}
+                {fmt(h.totalStaked)}
                 </span>
               </div>
             );

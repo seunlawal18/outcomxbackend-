@@ -6,6 +6,7 @@ import { Bookmark, Activity } from "lucide-react";
 import Countdown from "./Countdown";
 import { useCurrency } from "@/lib/useCurrency";
 import { useStore } from "@/lib/store";
+import { getCategoryIcon } from "@/lib/categoryIcons";
 import LoginRequiredModal from "./LoginRequiredModal";
 
 interface Props { market: Market; }
@@ -28,11 +29,6 @@ function ChanceGauge({ percent, color = "var(--emerald)" }: { percent: number; c
   );
 }
 
-const CAT_EMOJI: Record<string, string> = {
-  sports: "⚽", crypto: "₿", politics: "🏛️",
-  finance: "📈", esports: "🎮", entertainment: "🎬", economy: "💹",
-};
-
 // Colors for multi-outcome options
 const OPTION_COLORS = ["#10b981", "#ef4444", "#f59e0b", "#6366f1", "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6"];
 
@@ -49,6 +45,7 @@ export default function MarketCard({ market }: Props) {
   const { fmtVol } = useCurrency();
   const { isLoggedIn } = useStore();
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const CategoryIcon = getCategoryIcon(market.category);
 
   const goToMarket = (option?: string) => {
     if (option && !isLoggedIn) { setShowLoginModal(true); return; }
@@ -85,8 +82,8 @@ export default function MarketCard({ market }: Props) {
           {market.image ? (
             <img src={market.image} alt={market.title} style={{ width: 40, height: 40, borderRadius: 9, flexShrink: 0, objectFit: "cover", border: "1px solid var(--border)" }} />
           ) : (
-            <div style={{ width: 40, height: 40, borderRadius: 9, flexShrink: 0, background: "var(--bg-card-hover)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, border: "1px solid var(--border)" }}>
-              {CAT_EMOJI[market.category] || "📊"}
+            <div style={{ width: 40, height: 40, borderRadius: 9, flexShrink: 0, background: "var(--bg-card-hover)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border)" }}>
+              <CategoryIcon size={18} color="var(--text-secondary)" />
             </div>
           )}
 
@@ -140,7 +137,13 @@ export default function MarketCard({ market }: Props) {
             {market.options.map((opt, idx) => {
               const prob    = market.probabilities[opt] ?? 0;
               const color   = getOptionColor(opt, idx);
-              const isWinner = isSettled && market.result === opt;
+              // MULTI_YESNO markets can resolve with zero or multiple
+              // outcomes marked Yes (voided match, non-exclusive outcomes),
+              // so market.result may be a comma-joined list, not a single
+              // exact match — this still works correctly for plain MULTI
+              // markets, where result is always a single value.
+              const resultWinners = market.result ? market.result.split(", ") : [];
+              const isWinner = isSettled && resultWinners.includes(opt);
 
               return (
                 <div key={opt} style={{ display: "flex", alignItems: "center", gap: 8 }}>

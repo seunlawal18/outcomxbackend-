@@ -41,16 +41,22 @@ export interface Market {
   platformFee?: number | null;
   prizePool?: number | null;
   poolAmounts?: Record<string, number>;
+  /** CoinGecko coin id — presence marks this as a live-price market */
+  priceAssetId?: string | null;
+  priceAssetSymbol?: string | null;
+  openingPrice?: number | null;
 }
 
 export interface UserProfile {
-  name: string;
-  username: string;
-  bio: string;
-  avatar: string;
-  joinedAt: string;
-  region: string;
-  isVerified?: boolean;
+  name:            string;
+  username:        string;
+  bio:             string;
+  avatar:          string;
+  joinedAt:        string;
+  region:          string;
+  isVerified?:     boolean;
+  /** User's preferred display currency — overrides region default */
+  displayCurrency?: string;
 }
 
 export interface Trade {
@@ -63,6 +69,8 @@ export interface Trade {
   status: "active" | "won" | "lost";
   payoutAmount?: number;
   lockedPayout?: number | null;
+  /** When the trade settled (won/lost) — undefined while active */
+  settledAt?: string | null;
 }
 
 export interface User {
@@ -96,15 +104,25 @@ export const DURATION_MS: Record<MarketDuration, number> = {
   "yearly":  365 * 24 * 60 * 60 * 1000,
 };
 
+// ── Backend timestamp parsing ──────────────────────────────────────
+// SQLite's datetime('now') returns naive UTC strings with no "Z" or
+// offset (e.g. "2026-07-08 12:19:21"). Per the JS Date spec, a
+// timestamp with no timezone marker is parsed as LOCAL time, not UTC —
+// so every backend timestamp must go through this before use, or it
+// silently shifts by the viewer's UTC offset (wrong hour, wrong "how
+// long ago", wrong chart position — worse the further from UTC).
+export function parseApiDate(ts: string): Date {
+  const normalized = ts.endsWith("Z") || ts.includes("+") ? ts : ts + "Z";
+  return new Date(normalized);
+}
+
 export function calcExpiresAt(duration: MarketDuration, from?: string): string {
-  const base = from ? new Date(from.endsWith("Z") || from.includes("+") ? from : from + "Z").getTime() : Date.now();
+  const base = from ? parseApiDate(from).getTime() : Date.now();
   return new Date(base + DURATION_MS[duration]).toISOString();
 }
 
 export function formatCountdown(expiresAt: string): { label: string; urgent: boolean; expired: boolean } {
-  // Ensure the timestamp is treated as UTC — add Z if missing
-  const normalized = expiresAt.endsWith("Z") || expiresAt.includes("+") ? expiresAt : expiresAt + "Z";
-  const diff = new Date(normalized).getTime() - Date.now();
+  const diff = parseApiDate(expiresAt).getTime() - Date.now();
   if (diff <= 0) return { label: "Expired", urgent: true, expired: true };
 
   const s = Math.floor(diff / 1000);

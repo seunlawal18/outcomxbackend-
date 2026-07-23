@@ -7,18 +7,15 @@ import {
   ArrowLeft, Share2, Bookmark, Tag, Activity,
   TrendingUp, Clock, CheckCircle2, XCircle,
 } from "lucide-react";
-
-const CAT_EMOJI: Record<string, string> = {
-  sports: "⚽", crypto: "₿", politics: "🏛️",
-  finance: "📈", esports: "🎮", entertainment: "🎬", economy: "💹",
-};
+import { getCategoryIcon } from "@/lib/categoryIcons";
 
 interface Props {
   market: Market;
 }
 
 export default function MarketHeader({ market }: Props) {
-  const { fmt } = useCurrency();
+  const { fmtVol } = useCurrency();
+  const CategoryIcon = getCategoryIcon(market.category);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -79,11 +76,10 @@ export default function MarketHeader({ market }: Props) {
             width: 52, height: 52, borderRadius: 14, flexShrink: 0,
             background: "var(--bg-card-hover)", border: "1px solid var(--border)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 24,
           }}>
             {market.image
               ? <img src={market.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 14 }} />
-              : CAT_EMOJI[market.category] || "📊"}
+              : <CategoryIcon size={24} color="var(--text-secondary)" />}
           </div>
 
           {/* Title + meta */}
@@ -139,7 +135,7 @@ export default function MarketHeader({ market }: Props) {
                 background: "var(--bg-card-hover)", border: "1px solid var(--border)",
                 padding: "3px 9px", borderRadius: 20,
               }}>
-                <Activity size={10} /> {fmt(market.volume, true)} Vol.
+                <Activity size={10} /> {fmtVol(market.volume)} Vol.
               </span>
 
               {/* Countdown */}

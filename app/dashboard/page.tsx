@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { useCurrency } from "@/lib/useCurrency";
+import { parseApiDate } from "@/lib/types";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AuthGuard from "@/components/AuthGuard";
@@ -22,7 +23,7 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const { userProfile, balance, trades, markets } = useStore();
-  const { fmt, cfg } = useCurrency();
+  const { fmt, fmtUSD, cfg } = useCurrency();
 
   const wonTrades    = trades.filter(t => t.status === "won");
   const lostTrades   = trades.filter(t => t.status === "lost");
@@ -93,14 +94,14 @@ function DashboardContent() {
         {/* Stats grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14, marginBottom: 32 }}>
           {[
-            { label: "Balance",       value: fmt(balance),        color: "var(--emerald)", icon: <Wallet size={18} /> },
-            { label: "Active Trades", value: activeTrades.length, color: "#6366f1",        icon: <Clock size={18} /> },
-            { label: "Won",           value: wonTrades.length,    color: "var(--emerald)", icon: <TrendingUp size={18} /> },
-            { label: "Lost",          value: lostTrades.length,   color: "var(--red)",     icon: <TrendingDown size={18} /> },
-            { label: "Win Rate",      value: `${winRate}%`,       color: "#f59e0b",        icon: <Award size={18} /> },
+            { label: "Balance",       value: fmtUSD(balance),        color: "var(--emerald)", icon: <Wallet size={18} /> },
+            { label: "Active Trades", value: activeTrades.length,    color: "#6366f1",        icon: <Clock size={18} /> },
+            { label: "Won",           value: wonTrades.length,       color: "var(--emerald)", icon: <TrendingUp size={18} /> },
+            { label: "Lost",          value: lostTrades.length,      color: "var(--red)",     icon: <TrendingDown size={18} /> },
+            { label: "Win Rate",      value: `${winRate}%`,          color: "#f59e0b",        icon: <Award size={18} /> },
             {
               label: "Net P&L",
-              value: `${pnlPositive ? "+" : ""}${fmt(netPnL)}`,
+              value: `${pnlPositive ? "+" : ""}${fmtUSD(netPnL)}`,
               color: pnlPositive ? "var(--emerald)" : "var(--red)",
               icon: <Activity size={18} />,
             },
@@ -168,12 +169,12 @@ function DashboardContent() {
                                 background: "var(--emerald-bg)", color: "var(--emerald)",
                                 border: "1px solid var(--emerald-border)",
                               }}>
-                                {t.option} · {fmt(t.amount)}
+                                {t.option} · {fmtUSD(t.amount)}
                               </span>
                             ))}
                           </div>
                           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                            Total: {fmt(totalStaked)}
+                            Total: {fmtUSD(totalStaked)}
                           </span>
                         </div>
                       </div>
@@ -233,14 +234,14 @@ function DashboardContent() {
                           {t.marketTitle}
                         </p>
                         <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "2px 0 0" }}>
-                          {t.option} · {new Date(t.timestamp).toLocaleDateString()}
+                          {t.option} · {parseApiDate(t.timestamp).toLocaleDateString()}
                         </p>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>{fmt(t.amount)}</p>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>{fmtUSD(t.amount)}</p>
                         {pnl !== null && (
                           <p style={{ fontSize: 11, fontWeight: 700, margin: "2px 0 0", color: pnl >= 0 ? "var(--emerald)" : "var(--red)" }}>
-                            {pnl >= 0 ? "+" : ""}{fmt(pnl)}
+                            {pnl >= 0 ? "+" : ""}{fmtUSD(pnl)}
                           </p>
                         )}
                       </div>
