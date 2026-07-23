@@ -160,10 +160,34 @@ const MARKETS: MarketSeed[] = [
   },
 ];
 
+// ─── Demo users seeded on every startup (upserted) ───────────────────────────
+const DEMO_USERS = [
+  { email: 'demo@outcomx.com',        password: 'demo123',   name: 'Demo User',      username: 'demo_trader',  region: 'nigeria', balance: 500,   bio: 'Demo Account – Simulated Trading',                         verified: true  },
+  { email: 'alex@demo.outcomx.com',   password: 'Demo1234!', name: 'Alex Rivera',    username: 'alex_rivera',  region: 'usa',     balance: 2500,  bio: 'Crypto & politics prediction specialist.',                 verified: true  },
+  { email: 'sarah@demo.outcomx.com',  password: 'Demo1234!', name: 'Sarah Chen',     username: 'sarah_chen',   region: 'uk',      balance: 1800,  bio: 'Sports market analyst. I live for the underdog picks.',    verified: true  },
+  { email: 'marcus@demo.outcomx.com', password: 'Demo1234!', name: 'Marcus Johnson', username: 'marcus_j',     region: 'nigeria', balance: 500,   bio: 'Just getting started. Learning prediction markets.',       verified: false },
+  { email: 'priya@demo.outcomx.com',  password: 'Demo1234!', name: 'Priya Sharma',   username: 'priya_sharma', region: 'europe',  balance: 4200,  bio: 'Finance & economics trader. Former investment analyst.',   verified: true  },
+  { email: 'kofi@demo.outcomx.com',   password: 'Demo1234!', name: 'Kofi Mensah',    username: 'kofi_m',       region: 'ghana',   balance: 750,   bio: 'Esports and entertainment markets are my playground.',     verified: true  },
+  { email: 'isabella@demo.outcomx.com', password: 'Demo1234!', name: 'Isabella Costa', username: 'isa_costa', region: 'europe',  balance: 15000, bio: 'Big positions, big conviction. Long-term market thinker.', verified: true  },
+  { email: 'david@demo.outcomx.com',  password: 'Demo1234!', name: 'David Okafor',   username: 'david_ok',     region: 'nigeria', balance: 300,   bio: 'Weekend trader. Just here for the vibes.',                 verified: false },
+] as const;
+
 export async function runSeed(): Promise<void> {
   const userCount = (
-    db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }
+    (await db.prepare<{ count: number }>('SELECT COUNT(*)::int as count FROM users').get())!
   ).count;
+
+  // ── Always upsert demo users (idempotent) ──────────────────────────────
+  for (const u of DEMO_USERS) {
+    const existing = await db.prepare<{ id: number }>('SELECT id FROM users WHERE email = ?').get(u.email);
+    if (existing) continue;
+    const hash = await bcrypt.hash(u.password, config.bcryptRounds);
+    await db.prepare(`
+      INSERT INTO users (email, password_hash, name, username, region, balance, is_demo, is_verified, bio)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(u.email, hash, u.name, u.username, u.region, u.balance, u.verified ? 1 : 0, u.bio);
+    console.log(`  ✓ Demo user seeded: ${u.email}`);
+  }
 
   if (userCount > 0) {
     console.log('✓ Seed data ready');
@@ -172,46 +196,30 @@ export async function runSeed(): Promise<void> {
 
   console.log('  Seeding database...');
 
-  const demoHash  = await bcrypt.hash('demo123',  config.bcryptRounds);
   const adminHash = await bcrypt.hash('admin123', config.bcryptRounds);
 
-  db.transaction(() => {
+  await db.transaction(async (tx) => {
 
-    // ── Users ──────────────────────────────────────────────────────────────
-    db.prepare(`
-      INSERT INTO users (email, password_hash, name, username, region, balance, is_demo, bio)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('demo@outcomx.com', demoHash, 'Demo User', 'demo_trader',
-           'nigeria', 50000, 1, 'Demo Account – Simulated Trading');
-
-    db.prepare(`
+    // ── Admin user ─────────────────────────────────────────────────────────
+    await tx.prepare(`
       INSERT INTO users (email, password_hash, name, username, region, balance, is_admin)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('admin@outcomx.com', adminHash, 'OUTCOMX Admin', 'outcomx_admin',
            'nigeria', 0, 1);
 
     // ── Markets + outcomes + history ───────────────────────────────────────
-    const insertMarket = db.prepare(`
-      INSERT INTO markets
-        (title, category, type, options, probabilities, duration,
-         expires_at, volume, trending, status, result, resolution_source)
-      VALUES
-        (?, ?, ?, ?, ?, ?, datetime('now', ?), ?, ?, ?, ?, ?)
-    `);
-
-    const insertOutcome = db.prepare(`
-      INSERT INTO market_outcomes (market_id, label, probability, pool_amount)
-      VALUES (?, ?, ?, 0)
-    `);
-
-    const insertSnapshot = db.prepare(`
-      INSERT INTO market_price_history
-        (market_id, probabilities, yes_price, no_price, trade_volume)
-      VALUES (?, ?, ?, ?, 0)
-    `);
-
+    // expiresOffset (e.g. '+6 hours', '-1 hour') is passed straight through
+    // as a Postgres interval literal — its sign and unit text are valid
+    // interval syntax as-is, no reformatting needed.
     for (const m of MARKETS) {
-      const r = insertMarket.run(
+      const r = await tx.prepare(`
+        INSERT INTO markets
+          (title, category, type, options, probabilities, duration,
+           expires_at, volume, trending, status, result, resolution_source)
+        VALUES
+          (?, ?, ?, ?, ?, ?, to_char((NOW() AT TIME ZONE 'UTC') + ?::interval, 'YYYY-MM-DD HH24:MI:SS'), ?, ?, ?, ?, ?)
+        RETURNING id
+      `).run(
         m.title, m.category, m.type,
         JSON.stringify(m.options),
         JSON.stringify(m.probabilities),
@@ -227,23 +235,30 @@ export async function runSeed(): Promise<void> {
       // Insert one outcome row per option
       for (const label of m.options) {
         const pct = m.probabilities[label] ?? 0;
-        insertOutcome.run(marketId, label, pct / 100);
+        await tx.prepare(`
+          INSERT INTO market_outcomes (market_id, label, probability, pool_amount)
+          VALUES (?, ?, ?, 0)
+        `).run(marketId, label, pct / 100);
       }
 
       // Seed opening price history snapshot
       const { yes_price, no_price } = extractBinaryPrices(m.probabilities, m.options);
-      insertSnapshot.run(marketId, JSON.stringify(m.probabilities), yes_price, no_price);
+      await tx.prepare(`
+        INSERT INTO market_price_history
+          (market_id, probabilities, yes_price, no_price, trade_volume)
+        VALUES (?, ?, ?, ?, 0)
+      `).run(marketId, JSON.stringify(m.probabilities), yes_price, no_price);
     }
 
-  })();
+  });
 
   console.log('✓ Seed data ready');
 }
 
 // Allow running directly: tsx src/db/seed.ts
 if (require.main === module) {
-  applySchema();
-  runSeed()
+  applySchema()
+    .then(() => runSeed())
     .then(() => process.exit(0))
     .catch(err => { console.error('Seed failed:', err); process.exit(1); });
 }

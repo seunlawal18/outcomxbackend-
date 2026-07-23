@@ -3,12 +3,17 @@ import bcrypt from 'bcrypt';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
-import db from '../db/client';
+import crypto from 'crypto';
+import { verifyMessage, isAddress } from 'viem';
+import db, { SQL_NOW } from '../db/client';
 import config from '../config';
 import { requireAuth } from '../middleware/auth';
-import { generateToken, blacklistToken, getStartingBalance } from '../services/authService';
+import {
+  generateToken, blacklistToken, getStartingBalance,
+  createWalletNonce, consumeWalletNonce,
+} from '../services/authService';
 import { sendVerificationEmail } from '../services/emailService';
-import { DbUser, toApiUser } from '../types';
+import { DbUser, DbWallet, toApiUser } from '../types';
 
 const router = Router();
 
@@ -30,6 +35,8 @@ router.post('/login',                authLimiter);
 router.post('/logout',               authLimiter);
 router.post('/verify-email',         authLimiter);
 router.post('/resend-verification',  authLimiter);
+router.post('/wallet/nonce',         authLimiter);
+router.post('/wallet/verify',        authLimiter);
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -66,10 +73,12 @@ function generateUsername(email: string): string {
   return base;
 }
 
-function isUsernameTaken(username: string, excludeId?: number): boolean {
+// email/username/address columns are CITEXT (case-insensitive by type), so
+// plain `=` comparisons are already case-insensitive — no COLLATE needed.
+async function isUsernameTaken(username: string, excludeId?: number): Promise<boolean> {
   const query = excludeId
-    ? db.prepare('SELECT id FROM users WHERE username = ? AND id != ? COLLATE NOCASE').get(username, excludeId)
-    : db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE').get(username);
+    ? await db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, excludeId)
+    : await db.prepare('SELECT id FROM users WHERE username = ?').get(username);
   return !!query;
 }
 
@@ -102,8 +111,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
   }
 
   // Check email not already registered
-  const existingEmail = db
-    .prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE')
+  const existingEmail = await db
+    .prepare('SELECT id FROM users WHERE email = ?')
     .get(email);
   if (existingEmail) {
     res.status(409).json({ success: false, error: 'Email is already registered' });
@@ -112,28 +121,29 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 
   // Generate unique username
   let username = generateUsername(email);
-  if (isUsernameTaken(username)) {
+  if (await isUsernameTaken(username)) {
     const suffix = Math.floor(1000 + Math.random() * 9000);
     username = `${username}_${suffix}`;
   }
 
   const passwordHash = await bcrypt.hash(password, config.bcryptRounds);
-  const balance = getStartingBalance(region);
+  const balance = getStartingBalance();
 
-  const result = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO users (email, password_hash, name, username, region, balance)
     VALUES (?, ?, ?, ?, ?, ?)
+    RETURNING id
   `).run(email, passwordHash, name.trim(), username, region, balance);
 
-  const user = db
-    .prepare('SELECT * FROM users WHERE id = ?')
-    .get(result.lastInsertRowid) as DbUser;
+  const user = (await db
+    .prepare<DbUser>('SELECT * FROM users WHERE id = ?')
+    .get(result.lastInsertRowid))!;
 
   // Send verification email — non-blocking, don't fail registration if email fails
   try {
     const code      = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    db.prepare(
+    await db.prepare(
       'INSERT INTO email_verifications (user_id, code, expires_at) VALUES (?, ?, ?)',
     ).run(user.id, code, expiresAt);
     await sendVerificationEmail(email, name.trim(), code);
@@ -157,9 +167,9 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
   const { email, password } = parsed.data;
 
-  const user = db
-    .prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE')
-    .get(email) as DbUser | undefined;
+  const user = await db
+    .prepare<DbUser>('SELECT * FROM users WHERE email = ?')
+    .get(email);
 
   if (!user) {
     res.status(401).json({ success: false, error: 'Invalid email or password' });
@@ -179,7 +189,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
 // ─── POST /logout ─────────────────────────────────────────────────────────────
 
-router.post('/logout', requireAuth, (req: Request, res: Response): void => {
+router.post('/logout', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const token = req.headers.authorization!.slice(7);
 
   // Decode to get expiry without re-verifying (already verified by requireAuth)
@@ -188,18 +198,18 @@ router.post('/logout', requireAuth, (req: Request, res: Response): void => {
     ? new Date(decoded.exp * 1000)
     : new Date(Date.now() + 24 * 60 * 60 * 1000); // fallback: 24h from now
 
-  blacklistToken(token, expiresAt);
+  await blacklistToken(token, expiresAt);
 
   res.status(200).json({ success: true });
 });
 
 // ─── GET /me ──────────────────────────────────────────────────────────────────
 
-router.get('/me', requireAuth, (req: Request, res: Response): void => {
+router.get('/me', requireAuth, async (req: Request, res: Response): Promise<void> => {
   // Re-read fresh data from DB
-  const user = db
-    .prepare('SELECT * FROM users WHERE id = ?')
-    .get(req.user!.id) as DbUser | undefined;
+  const user = await db
+    .prepare<DbUser>('SELECT * FROM users WHERE id = ?')
+    .get(req.user!.id);
 
   if (!user) {
     res.status(404).json({ success: false, error: 'User not found' });
@@ -222,7 +232,7 @@ router.patch('/profile', requireAuth, async (req: Request, res: Response): Promi
   const userId = req.user!.id;
 
   // Check username uniqueness if provided
-  if (username && isUsernameTaken(username, userId)) {
+  if (username && await isUsernameTaken(username, userId)) {
     res.status(409).json({ success: false, error: 'Username is already taken' });
     return;
   }
@@ -235,13 +245,8 @@ router.patch('/profile', requireAuth, async (req: Request, res: Response): Promi
   if (username !== undefined) { fields.push('username = ?'); values.push(username); }
   if (bio !== undefined)      { fields.push('bio = ?');      values.push(bio); }
   if (avatar !== undefined)   { fields.push('avatar = ?');   values.push(avatar); }
-  if (region !== undefined) {
-    fields.push('region = ?');
-    values.push(region);
-    // Reset balance when region changes
-    fields.push('balance = ?');
-    values.push(getStartingBalance(region));
-  }
+  // region is locale/profile metadata only — no longer tied to balance
+  if (region !== undefined)   { fields.push('region = ?');   values.push(region); }
 
   if (fields.length === 0) {
     res.status(400).json({ success: false, error: 'No fields provided to update' });
@@ -249,11 +254,11 @@ router.patch('/profile', requireAuth, async (req: Request, res: Response): Promi
   }
 
   values.push(userId);
-  db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  await db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
-  const updatedUser = db
-    .prepare('SELECT * FROM users WHERE id = ?')
-    .get(userId) as DbUser;
+  const updatedUser = (await db
+    .prepare<DbUser>('SELECT * FROM users WHERE id = ?')
+    .get(userId))!;
 
   res.status(200).json({ success: true, data: toApiUser(updatedUser) });
 });
@@ -279,24 +284,24 @@ router.post('/verify-email', requireAuth, async (req: Request, res: Response): P
     used: number;
   }
 
-  const row = db.prepare(`
+  const row = await db.prepare<VerificationRow>(`
     SELECT * FROM email_verifications
-    WHERE user_id = ? AND code = ? AND used = 0 AND expires_at > datetime('now')
+    WHERE user_id = ? AND code = ? AND used = 0 AND expires_at > ${SQL_NOW}
     ORDER BY created_at DESC
     LIMIT 1
-  `).get(userId, String(code)) as VerificationRow | undefined;
+  `).get(userId, String(code));
 
   if (!row) {
     res.status(400).json({ success: false, error: 'Invalid or expired code' });
     return;
   }
 
-  db.transaction(() => {
-    db.prepare('UPDATE email_verifications SET used = 1 WHERE id = ?').run(row.id);
-    db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(userId);
-  })();
+  await db.transaction(async (tx) => {
+    await tx.prepare('UPDATE email_verifications SET used = 1 WHERE id = ?').run(row.id);
+    await tx.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(userId);
+  });
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as DbUser;
+  const user = (await db.prepare<DbUser>('SELECT * FROM users WHERE id = ?').get(userId))!;
   res.status(200).json({ success: true, data: toApiUser(user) });
 });
 
@@ -306,7 +311,7 @@ router.post('/verify-email', requireAuth, async (req: Request, res: Response): P
 
 router.post('/resend-verification', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const userId = req.user!.id;
-  const user   = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as DbUser;
+  const user   = (await db.prepare<DbUser>('SELECT * FROM users WHERE id = ?').get(userId))!;
 
   if (user.is_verified === 1) {
     res.status(400).json({ success: false, error: 'Email already verified' });
@@ -316,7 +321,7 @@ router.post('/resend-verification', requireAuth, async (req: Request, res: Respo
   const code      = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-  db.prepare(
+  await db.prepare(
     'INSERT INTO email_verifications (user_id, code, expires_at) VALUES (?, ?, ?)',
   ).run(userId, code, expiresAt);
 
@@ -327,6 +332,100 @@ router.post('/resend-verification', requireAuth, async (req: Request, res: Respo
   }
 
   res.status(200).json({ success: true });
+});
+
+// ─── Wallet auth ────────────────────────────────────────────────────────────
+
+const nonceSchema  = z.object({ address: z.string() });
+const verifySchema = z.object({
+  address:   z.string(),
+  message:   z.string(),
+  signature: z.string(),
+});
+
+async function generateWalletUsername(address: string): Promise<string> {
+  const base = `wallet_${address.slice(2, 8).toLowerCase()}`;
+  return (await isUsernameTaken(base)) ? `${base}_${Math.floor(1000 + Math.random() * 9000)}` : base;
+}
+
+// ─── POST /wallet/nonce ─────────────────────────────────────────────────────
+// Step 1 of connect-wallet sign-in: issue a one-time message for the wallet
+// to sign. Doesn't touch the users table — no account is created yet.
+
+router.post('/wallet/nonce', async (req: Request, res: Response): Promise<void> => {
+  const parsed = nonceSchema.safeParse(req.body);
+  if (!parsed.success || !isAddress(parsed.data.address)) {
+    res.status(400).json({ success: false, error: 'Valid wallet address is required' });
+    return;
+  }
+
+  const { message } = await createWalletNonce(parsed.data.address);
+  res.status(200).json({ success: true, data: { message } });
+});
+
+// ─── POST /wallet/verify ────────────────────────────────────────────────────
+// Step 2: verify the signature over the exact message we issued, then
+// find-or-create the user and issue the same JWT the email flow uses.
+
+router.post('/wallet/verify', async (req: Request, res: Response): Promise<void> => {
+  const parsed = verifySchema.safeParse(req.body);
+  if (!parsed.success || !isAddress(parsed.data.address)) {
+    res.status(400).json({ success: false, error: 'Invalid request' });
+    return;
+  }
+
+  const { address, message, signature } = parsed.data;
+
+  if (!(await consumeWalletNonce(address, message))) {
+    res.status(401).json({ success: false, error: 'Nonce missing, expired, or already used' });
+    return;
+  }
+
+  const validSignature = await verifyMessage({
+    address: address as `0x${string}`,
+    message,
+    signature: signature as `0x${string}`,
+  }).catch(() => false);
+
+  if (!validSignature) {
+    res.status(401).json({ success: false, error: 'Signature verification failed' });
+    return;
+  }
+
+  const existingWallet = await db
+    .prepare<DbWallet>('SELECT * FROM wallets WHERE address = ?')
+    .get(address);
+
+  let user: DbUser;
+
+  if (existingWallet) {
+    user = (await db.prepare<DbUser>('SELECT * FROM users WHERE id = ?').get(existingWallet.user_id))!;
+  } else {
+    // First time this address has signed in — create the account.
+    // email/password_hash stay NOT NULL at the DB level, so wallet accounts
+    // get an unusable placeholder for both (never used for password login).
+    const placeholderEmail = `${address.toLowerCase()}@wallet.outcomx.local`;
+    const placeholderHash  = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), config.bcryptRounds);
+    const username = await generateWalletUsername(address);
+    const balance  = getStartingBalance();
+
+    user = await db.transaction(async (tx) => {
+      const result = await tx.prepare(`
+        INSERT INTO users (email, password_hash, name, username, region, balance, is_verified)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+        RETURNING id
+      `).run(placeholderEmail, placeholderHash, `Wallet ${address.slice(0, 6)}`, username, 'other', balance);
+
+      await tx.prepare(`
+        INSERT INTO wallets (user_id, chain, address, is_primary) VALUES (?, 'evm', ?, 1)
+      `).run(result.lastInsertRowid, address);
+
+      return (await tx.prepare<DbUser>('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid))!;
+    });
+  }
+
+  const token = generateToken(user.id, user.is_admin === 1);
+  res.status(200).json({ success: true, data: { token, user: toApiUser(user, address) } });
 });
 
 export default router;

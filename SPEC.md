@@ -19,7 +19,7 @@ CREATE TABLE users (
   name          TEXT NOT NULL,
   username      TEXT UNIQUE NOT NULL COLLATE NOCASE,
   region        TEXT NOT NULL DEFAULT 'nigeria',
-  balance       REAL NOT NULL DEFAULT 50000,
+  balance       REAL NOT NULL DEFAULT 0,
   is_admin      INTEGER NOT NULL DEFAULT 0,
   is_demo       INTEGER NOT NULL DEFAULT 0,
   is_verified   INTEGER NOT NULL DEFAULT 0,
@@ -137,18 +137,15 @@ Set `DATABASE_URL=postgresql://user:password@host:5432/outcomx`
 
 ---
 
-## 2. Regional Starting Balances & Minimum Stakes
+## 2. Starting Balance & Minimum Stake
 
-| Region | Starting Balance | Min Stake |
-|--------|-----------------|-----------|
-| nigeria | 50,000 | 1,500 |
-| ghana | 1,000 | 15 |
-| kenya | 10,000 | 130 |
-| uk | 500 | 0.79 |
-| usa | 500 | 0.99 |
-| europe | 500 | 0.92 |
-| southafrica | 5,000 | 18 |
-| other | 500 | 0.99 |
+Single global USD ledger — every account uses the same values regardless of region:
+
+| Starting Balance | Min Stake | Max Single Deposit |
+|-------------------|-----------|---------------------|
+| $0 | $0.99 | $50,000 |
+
+New accounts start at $0 and must deposit before placing a trade. `region` (nigeria/ghana/kenya/uk/usa/europe/southafrica/other) is still collected and stored on the user record for locale/profile purposes, but no longer drives any of the values above.
 
 ---
 
@@ -188,7 +185,7 @@ Rules:
 - Name: min 2 words
 - Email: unique (case-insensitive)
 - Username auto-generated from email prefix
-- Balance set from regional starting balance
+- Balance starts at $0 (global USD ledger) — user must deposit before trading
 - Verification email sent (non-blocking — registration succeeds even if email fails)
 
 #### `POST /api/auth/login`
@@ -223,7 +220,7 @@ Requires Bearer token.
 // Response 200
 { "success": true, "data": { ...ApiUser } }
 ```
-If region changes, balance is reset to new region's starting balance.
+`region` is locale/profile metadata only — changing it has no effect on balance.
 
 #### `POST /api/auth/verify-email`
 Requires Bearer token.
@@ -396,17 +393,17 @@ All require Bearer token.
 #### `GET /api/wallet/balance`
 ```json
 // Response 200
-{ "success": true, "data": { "balance": 47500, "region": "nigeria" } }
+{ "success": true, "data": { "balance": 47.5, "region": "nigeria" } }
 ```
 
 #### `POST /api/wallet/deposit`
 ```json
 // Request
-{ "amount": 10000 }
+{ "amount": 10 }
 
 // Response 200
-{ "success": true, "data": { "balance": 57500 } }
-// Errors: 400 if amount < minStake or > startingBalance * 200
+{ "success": true, "data": { "balance": 57.5 } }
+// Errors: 400 if amount < $0.99 or > $50,000 (MAX_DEPOSIT_USD)
 ```
 
 ---
@@ -657,8 +654,8 @@ Preflight `OPTIONS` requests return `204` with all headers.
 
 | Email | Password | Role | Balance |
 |-------|----------|------|---------|
-| `demo@outcomx.com` | `demo123` | `is_demo=1` | 50,000 |
-| `admin@outcomx.com` | `admin123` | `is_admin=1` | 0 |
+| `demo@outcomx.com` | `demo123` | `is_demo=1` | $500 |
+| `admin@outcomx.com` | `admin123` | `is_admin=1` | $0 |
 
 ---
 

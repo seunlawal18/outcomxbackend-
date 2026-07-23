@@ -25,7 +25,7 @@ model User {
   name         String
   username     String @unique
   region       String @default("nigeria")
-  balance      Float  @default(50000)
+  balance      Float  @default(0)
   isAdmin      Int    @default(0) @map("is_admin")
   isDemo       Int    @default(0) @map("is_demo")
   bio          String @default("")
@@ -63,6 +63,9 @@ model Market {
   platformFee      Float?  @map("platform_fee")  // 3% of total pool — set at settlement
   prizePool        Float?  @map("prize_pool")     // 97% of total pool — set at settlement
   trending         Int    @default(0)
+  priceAssetId     String? @map("price_asset_id")      // CoinGecko coin id — presence marks a live-price market
+  priceAssetSymbol String? @map("price_asset_symbol")  // display symbol, e.g. "BTC"
+  openingPrice     Float?  @map("opening_price")       // real price at creation, for auto-resolution
   createdAt        String @default(dbgenerated("(datetime('now'))")) @map("created_at")
 
   trades       Trade[]
@@ -137,6 +140,7 @@ model MarketPriceHistory {
   yesPrice      Float? @map("yes_price")
   noPrice       Float? @map("no_price")
   tradeVolume   Float  @default(0) @map("trade_volume")
+  assetPrice    Float? @map("asset_price")  // real external asset price (USD), live-price markets only
   timestamp     String @default(dbgenerated("(datetime('now'))")) @map("recorded_at")
 
   market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)

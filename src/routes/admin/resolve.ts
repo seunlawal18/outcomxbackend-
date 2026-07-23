@@ -7,12 +7,18 @@ import { DbMarket, DbMarketOutcome, toApiMarket } from '../../types';
 const router = Router();
 
 const resolveSchema = z.object({
-  result: z.string().min(1, 'result is required'),
+  // Plain markets: a single winning option name.
+  // MULTI_YESNO: a Yes/No result for every outcome, keyed by outcome label —
+  // set independently per outcome (see settleMarket / OutcomeResults).
+  result: z.union([
+    z.string().min(1, 'result is required'),
+    z.record(z.enum(['Yes', 'No'])),
+  ]),
 });
 
 // ─── PATCH /:id ───────────────────────────────────────────────────────────────
 
-router.patch('/:id', (req: Request, res: Response): void => {
+router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     res.status(400).json({ success: false, error: 'Invalid market ID' });
@@ -28,17 +34,17 @@ router.patch('/:id', (req: Request, res: Response): void => {
   const { result } = parsed.data;
 
   try {
-    const { settledCount, totalPool, platformFee, prizePool } = settleMarket(id, result);
+    const { settledCount, totalPool, platformFee, prizePool, resultLabel } = await settleMarket(id, result, req.user!.id);
 
-    const market   = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket;
-    const outcomes = db.prepare(
+    const market   = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+    const outcomes = await db.prepare<DbMarketOutcome>(
       'SELECT * FROM market_outcomes WHERE market_id = ? ORDER BY id ASC',
-    ).all(id) as DbMarketOutcome[];
+    ).all(id);
 
     res.status(200).json({
       success: true,
       data: {
-        market:       toApiMarket(market, outcomes),
+        market:       toApiMarket(market!, outcomes),
         settledTrades: settledCount,
         // Fee breakdown — for admin dashboard + analytics
         settlement: {
@@ -46,7 +52,7 @@ router.patch('/:id', (req: Request, res: Response): void => {
           platformFee,
           platformFeeRate: 0.03,
           prizePool,
-          winningOutcome: result,
+          winningOutcome: resultLabel,
         },
       },
     });

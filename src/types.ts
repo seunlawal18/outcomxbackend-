@@ -17,6 +17,38 @@ export interface DbUser {
   created_at: string;
 }
 
+export interface DbWallet {
+  id: number;
+  user_id: number;
+  chain: string;
+  address: string;
+  is_primary: number;
+  created_at: string;
+}
+
+export interface DbDepositAddress {
+  id: number;
+  user_id: number;
+  address: string;
+  derivation_index: number;
+  chain: string;
+  created_at: string;
+}
+
+export interface DbWithdrawalRequest {
+  id: number;
+  user_id: number;
+  amount: number;
+  destination_address: string;
+  chain: string;
+  status: string; // 'pending' | 'approved' | 'rejected' | 'completed'
+  admin_note: string | null;
+  tx_hash: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: number | null; // admin user id who approved/rejected/completed this
+}
+
 export interface DbMarket {
   id: number;
   title: string;
@@ -35,7 +67,11 @@ export interface DbMarket {
   platform_fee: number | null;  // 3% of total pool, set at settlement
   prize_pool: number | null;    // 97% of total pool, set at settlement
   trending: number;
+  price_asset_id: string | null;      // CoinGecko coin id — presence marks a live-price market
+  price_asset_symbol: string | null;  // display symbol, e.g. "BTC"
+  opening_price: number | null;       // real price at creation, for auto-resolution
   created_at: string;
+  resolved_by: number | null;         // admin user id who manually resolved this — null for auto-resolved (live-price) markets
 }
 
 export interface DbMarketOutcome {
@@ -44,6 +80,7 @@ export interface DbMarketOutcome {
   label: string;
   probability: number;   // decimal 0.00–1.00
   pool_amount: number;   // total staked on this outcome
+  result: string | null; // 'Yes' | 'No' | null — set on settlement (MULTI_YESNO only)
   created_at: string;
 }
 
@@ -57,6 +94,7 @@ export interface DbTrade {
   status: string;
   payout_amount: number | null;
   locked_payout: number | null;
+  settled_at: string | null;
   timestamp: string;
 }
 
@@ -67,6 +105,7 @@ export interface DbPriceHistory {
   yes_price: number | null;
   no_price: number | null;
   trade_volume: number;
+  asset_price: number | null;
   recorded_at: string;
 }
 
@@ -85,6 +124,7 @@ export interface ApiUser {
   bio: string;
   avatar: string;
   joinedAt: string;
+  walletAddress: string | null;
 }
 
 export interface ApiMarketOutcome {
@@ -93,6 +133,7 @@ export interface ApiMarketOutcome {
   label: string;
   probability: number;   // decimal 0.00–1.00
   poolAmount: number;
+  result: string | null; // 'Yes' | 'No' | null — set on settlement (MULTI_YESNO only)
   createdAt: string;
 }
 
@@ -114,7 +155,11 @@ export interface ApiMarket {
   platformFee: number | null;   // 3% of total pool — null until settled
   prizePool: number | null;     // 97% of total pool — null until settled
   trending: boolean;
+  priceAssetId: string | null;
+  priceAssetSymbol: string | null;
+  openingPrice: number | null;
   createdAt: string;
+  resolvedBy: number | null; // admin user id — null if auto-resolved (live-price market)
   outcomes?: ApiMarketOutcome[];
 }
 
@@ -127,6 +172,7 @@ export interface ApiTrade {
   status: string;
   payoutAmount: number | null;
   lockedPayout?: number | null;
+  settledAt: string | null;
   timestamp: string;
 }
 
@@ -135,12 +181,13 @@ export interface ApiPricePoint {
   yesPrice: number | null;
   noPrice: number | null;
   tradeVolume: number;
+  assetPrice: number | null;
   recordedAt: string;
 }
 
 // ─── Helper converters ────────────────────────────────────────────────────────
 
-export function toApiUser(row: DbUser): ApiUser {
+export function toApiUser(row: DbUser, walletAddress: string | null = null): ApiUser {
   return {
     id:         row.id,
     email:      row.email,
@@ -154,6 +201,7 @@ export function toApiUser(row: DbUser): ApiUser {
     bio:        row.bio,
     avatar:     row.avatar,
     joinedAt:   row.joined_at,
+    walletAddress,
   };
 }
 
@@ -176,7 +224,11 @@ export function toApiMarket(row: DbMarket, outcomes?: DbMarketOutcome[]): ApiMar
     platformFee:      row.platform_fee ?? null,
     prizePool:        row.prize_pool   ?? null,
     trending:         row.trending === 1,
+    priceAssetId:     row.price_asset_id     ?? null,
+    priceAssetSymbol: row.price_asset_symbol ?? null,
+    openingPrice:     row.opening_price      ?? null,
     createdAt:        row.created_at,
+    resolvedBy:       row.resolved_by ?? null,
     outcomes:         outcomes?.map(toApiMarketOutcome),
   };
 }
@@ -188,6 +240,7 @@ export function toApiMarketOutcome(row: DbMarketOutcome): ApiMarketOutcome {
     label:       row.label,
     probability: row.probability,
     poolAmount:  row.pool_amount,
+    result:      row.result,
     createdAt:   row.created_at,
   };
 }
@@ -202,6 +255,7 @@ export function toApiTrade(row: DbTrade): ApiTrade {
     status:       row.status,
     payoutAmount: row.payout_amount ?? null,
     lockedPayout: row.locked_payout ?? null,
+    settledAt:    row.settled_at ?? null,
     timestamp:    row.timestamp,
   };
 }
@@ -212,6 +266,7 @@ export function toApiPricePoint(row: DbPriceHistory): ApiPricePoint {
     yesPrice:      row.yes_price,
     noPrice:       row.no_price,
     tradeVolume:   row.trade_volume,
+    assetPrice:    row.asset_price,
     recordedAt:    row.recorded_at,
   };
 }

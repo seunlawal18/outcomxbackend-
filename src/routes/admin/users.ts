@@ -6,33 +6,35 @@ const router = Router();
 
 // ─── GET / ────────────────────────────────────────────────────────────────────
 
-router.get('/', (_req: Request, res: Response): void => {
-  const users = db
-    .prepare('SELECT * FROM users ORDER BY created_at DESC')
-    .all() as DbUser[];
+router.get('/', async (_req: Request, res: Response): Promise<void> => {
+  const users = await db
+    .prepare<DbUser>('SELECT * FROM users ORDER BY created_at DESC')
+    .all();
 
   // toApiUser strips password_hash
-  res.status(200).json({ success: true, data: users.map(toApiUser) });
+  res.status(200).json({ success: true, data: users.map(u => toApiUser(u)) });
 });
 
 // ─── GET /stats ───────────────────────────────────────────────────────────────
+// COUNT(*) returns bigint in Postgres (parsed as a JS string by the driver) —
+// cast to ::int so these stay plain numbers, matching the old SQLite shape.
 
-router.get('/stats', (_req: Request, res: Response): void => {
+router.get('/stats', async (_req: Request, res: Response): Promise<void> => {
   const totalUsers = (
-    db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }
+    (await db.prepare<{ count: number }>('SELECT COUNT(*)::int as count FROM users').get())!
   ).count;
 
   // Active traders: users who have placed at least one trade
   const activeTraders = (
-    db.prepare('SELECT COUNT(DISTINCT user_id) as count FROM trades').get() as { count: number }
+    (await db.prepare<{ count: number }>('SELECT COUNT(DISTINCT user_id)::int as count FROM trades').get())!
   ).count;
 
   const totalTrades = (
-    db.prepare('SELECT COUNT(*) as count FROM trades').get() as { count: number }
+    (await db.prepare<{ count: number }>('SELECT COUNT(*)::int as count FROM trades').get())!
   ).count;
 
   const activeTrades = (
-    db.prepare("SELECT COUNT(*) as count FROM trades WHERE status = 'active'").get() as { count: number }
+    (await db.prepare<{ count: number }>("SELECT COUNT(*)::int as count FROM trades WHERE status = 'active'").get())!
   ).count;
 
   res.status(200).json({

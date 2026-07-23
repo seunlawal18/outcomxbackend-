@@ -24,14 +24,27 @@ export interface TradePlacedEvent {
   marketId:             number;
   updatedProbabilities: Record<string, number>;
   latestPrice:          ApiPricePoint;
-  tradeVolume:          number;
+  tradeVolume:          number; // this trade's stake — kept for logging/analytics
+  newVolume:            number; // fresh absolute market volume — clients should just set this, not add tradeVolume themselves
   timestamp:            string;
+}
+
+export interface SettledTradeResult {
+  userId:       number;
+  tradeId:      number;
+  status:       'won' | 'lost';
+  payoutAmount: number;
 }
 
 export interface MarketSettledEvent {
   marketId:     number;
+  marketTitle:  string;
   result:       string;
   settledCount: number;
+  // Per-trade outcomes — lets the socket layer push a targeted
+  // "your trade settled" notification to each affected user, instead of
+  // clients polling their own trade list to notice a change.
+  trades:       SettledTradeResult[];
   timestamp:    string;
 }
 
@@ -39,6 +52,20 @@ export interface MarketClosedEvent {
   marketId:  number;
   reason:    'expired' | 'manual';
   timestamp: string;
+}
+
+export interface PriceTickEvent {
+  marketId:    number;
+  pricePoint:  ApiPricePoint;
+}
+
+export interface WithdrawalUpdatedEvent {
+  userId:       number;
+  withdrawalId: number;
+  status:       'approved' | 'rejected' | 'completed';
+  amount:       number;
+  txHash?:      string | null;
+  timestamp:    string;
 }
 
 class OutcomxEmitter extends EventEmitter {
@@ -52,6 +79,14 @@ class OutcomxEmitter extends EventEmitter {
 
   marketClosed(payload: MarketClosedEvent): void {
     this.emit('market:closed', payload);
+  }
+
+  priceTick(payload: PriceTickEvent): void {
+    this.emit('price:tick', payload);
+  }
+
+  withdrawalUpdated(payload: WithdrawalUpdatedEvent): void {
+    this.emit('withdrawal:updated', payload);
   }
 }
 

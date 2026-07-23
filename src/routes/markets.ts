@@ -8,16 +8,16 @@ const router = Router();
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function getOutcomes(marketId: number): DbMarketOutcome[] {
-  return db.prepare(
+async function getOutcomes(marketId: number): Promise<DbMarketOutcome[]> {
+  return db.prepare<DbMarketOutcome>(
     'SELECT * FROM market_outcomes WHERE market_id = ? ORDER BY id ASC',
-  ).all(marketId) as DbMarketOutcome[];
+  ).all(marketId);
 }
 
 // ─── GET / ────────────────────────────────────────────────────────────────────
 
-router.get('/', (req: Request, res: Response): void => {
-  autoCloseExpiredMarkets();
+router.get('/', async (req: Request, res: Response): Promise<void> => {
+  await autoCloseExpiredMarkets();
 
   const { category, duration, status, search, trending, new: isNew } = req.query;
 
@@ -29,32 +29,30 @@ router.get('/', (req: Request, res: Response): void => {
   // Default to open only — only show all statuses when explicitly requested
   if (status)           { query += ' AND status = ?';                            params.push(status); }
   else                  { query += " AND status = 'open'"; }
-  if (search)           { query += ' AND title LIKE ? COLLATE NOCASE';           params.push(`%${search}%`); }
+  if (search)           { query += ' AND title ILIKE ?';                         params.push(`%${search}%`); }
   if (trending === 'true') { query += ' AND trending = 1'; }
-  if (isNew === 'true') { query += ` AND created_at >= datetime('now', '-48 hours')`; }
+  if (isNew === 'true') { query += ` AND created_at >= to_char((NOW() AT TIME ZONE 'UTC') - INTERVAL '48 hours', 'YYYY-MM-DD HH24:MI:SS')`; }
 
   query += ' ORDER BY created_at DESC';
 
-  const rows = db.prepare(query).all(...params) as DbMarket[];
+  const rows = await db.prepare<DbMarket>(query).all(...params);
 
-  res.status(200).json({
-    success: true,
-    data: rows.map(r => toApiMarket(r, getOutcomes(r.id))),
-  });
+  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
+  res.status(200).json({ success: true, data });
 });
 
 // ─── GET /:id ─────────────────────────────────────────────────────────────────
 
-router.get('/:id', (req: Request, res: Response): void => {
-  autoCloseExpiredMarkets();
+router.get('/:id', async (req: Request, res: Response): Promise<void> => {
+  await autoCloseExpiredMarkets();
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
 
-  const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket | undefined;
+  const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
-  res.status(200).json({ success: true, data: toApiMarket(market, getOutcomes(id)) });
+  res.status(200).json({ success: true, data: toApiMarket(market, await getOutcomes(id)) });
 });
 
 // ─── GET /:id/history ─────────────────────────────────────────────────────────
@@ -67,15 +65,15 @@ router.get('/:id', (req: Request, res: Response): void => {
 // Query params:
 //   limit — max rows (default 200, max 1000)
 
-router.get('/:id/history', (req: Request, res: Response): void => {
+router.get('/:id/history', async (req: Request, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
 
-  const exists = db.prepare('SELECT id FROM markets WHERE id = ?').get(id);
+  const exists = await db.prepare('SELECT id FROM markets WHERE id = ?').get(id);
   if (!exists) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
   const limit = Math.min(parseInt((req.query.limit as string) || '200', 10), 1000);
-  const history = getMarketHistory(id, limit);
+  const history = await getMarketHistory(id, limit);
 
   res.status(200).json({ success: true, data: history });
 });
@@ -83,7 +81,7 @@ router.get('/:id/history', (req: Request, res: Response): void => {
 // ─── GET /:id/trades ──────────────────────────────────────────────────────────
 // Public recent activity feed for a market. Trader names are anonymised.
 
-router.get('/:id/trades', (req: Request, res: Response): void => {
+router.get('/:id/trades', async (req: Request, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
 
@@ -94,14 +92,14 @@ router.get('/:id/trades', (req: Request, res: Response): void => {
     status: string; timestamp: string; username: string;
   }
 
-  const rows = db.prepare(`
+  const rows = await db.prepare<TradeRow>(`
     SELECT t.id, t.option, t.amount, t.status, t.timestamp, u.username
     FROM trades t
     JOIN users u ON u.id = t.user_id
     WHERE t.market_id = ?
     ORDER BY t.timestamp DESC
     LIMIT ?
-  `).all(id, limit) as TradeRow[];
+  `).all(id, limit);
 
   const data = rows.map(r => ({
     id:        r.id,

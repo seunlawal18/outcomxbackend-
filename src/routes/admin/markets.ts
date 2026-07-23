@@ -7,7 +7,9 @@ import {
   validateAndNormaliseProbs,
 } from '../../services/marketService';
 import { seedInitialSnapshot } from '../../services/marketHistoryService';
+import { fetchPrice } from '../../services/priceFeedService';
 import { DbMarket, DbMarketOutcome, toApiMarket } from '../../types';
+import { emitter } from '../../events';
 
 const router = Router();
 
@@ -39,6 +41,10 @@ const createMarketSchema = z.object({
   image:             z.string().url('Image must be a valid URL').optional(),
   banner:            z.string().url('Banner must be a valid URL').optional(),
   resolution_source: z.string().max(500).optional(),
+  // Live-price tracking — UP_DOWN markets only. Presence of price_asset_id
+  // marks the market for automatic price-based resolution at expiry.
+  price_asset_id:     z.string().min(1).optional(),
+  price_asset_symbol: z.string().min(1).max(20).optional(),
 });
 
 const updateMarketSchema = z.object({
@@ -52,15 +58,15 @@ const updateMarketSchema = z.object({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getOutcomes(marketId: number): DbMarketOutcome[] {
-  return db.prepare(
+async function getOutcomes(marketId: number): Promise<DbMarketOutcome[]> {
+  return db.prepare<DbMarketOutcome>(
     'SELECT * FROM market_outcomes WHERE market_id = ? ORDER BY id ASC',
-  ).all(marketId) as DbMarketOutcome[];
+  ).all(marketId);
 }
 
 // ─── GET / ────────────────────────────────────────────────────────────────────
 
-router.get('/', (req: Request, res: Response): void => {
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   const { search, status, category } = req.query;
 
   let query = `
@@ -71,23 +77,21 @@ router.get('/', (req: Request, res: Response): void => {
   `;
   const params: unknown[] = [];
 
-  if (search)   { query += ' AND m.title LIKE ? COLLATE NOCASE'; params.push(`%${search}%`); }
-  if (status)   { query += ' AND m.status = ?';                  params.push(status); }
-  if (category) { query += ' AND m.category = ?';                params.push(category); }
+  if (search)   { query += ' AND m.title ILIKE ?';   params.push(`%${search}%`); }
+  if (status)   { query += ' AND m.status = ?';      params.push(status); }
+  if (category) { query += ' AND m.category = ?';    params.push(category); }
 
   query += ' GROUP BY m.id ORDER BY m.created_at DESC';
 
-  const rows = db.prepare(query).all(...params) as DbMarket[];
+  const rows = await db.prepare<DbMarket>(query).all(...params);
 
-  res.status(200).json({
-    success: true,
-    data: rows.map(r => toApiMarket(r, getOutcomes(r.id))),
-  });
+  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
+  res.status(200).json({ success: true, data });
 });
 
 // ─── POST / ───────────────────────────────────────────────────────────────────
 
-router.post('/', (req: Request, res: Response): void => {
+router.post('/', async (req: Request, res: Response): Promise<void> => {
   const parsed = createMarketSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.errors[0].message });
@@ -97,7 +101,32 @@ router.post('/', (req: Request, res: Response): void => {
   const {
     title, category, type, options, duration,
     image, banner, resolution_source,
+    price_asset_id, price_asset_symbol,
   } = parsed.data;
+
+  // ── Live-price tracking is UP_DOWN only ──────────────────────────────────
+  if (price_asset_id && type !== 'UP_DOWN') {
+    res.status(400).json({ success: false, error: 'Live price tracking is only available for Up/Down markets' });
+    return;
+  }
+
+  // ── Fetch the real opening price before creating anything ───────────────
+  // Done outside the DB transaction — if the fetch fails, reject rather
+  // than create a half-configured market with no opening price to resolve against.
+  let openingPrice: number | null = null;
+  if (price_asset_id) {
+    try {
+      openingPrice = await fetchPrice(price_asset_id);
+    } catch (err) {
+      const error = err as Error;
+      res.status(502).json({ success: false, error: `Could not fetch opening price: ${error.message}` });
+      return;
+    }
+    if (openingPrice === null) {
+      res.status(400).json({ success: false, error: `Unknown or unsupported coin id: "${price_asset_id}"` });
+      return;
+    }
+  }
 
   // ── Validate options uniqueness ──────────────────────────────────────────
   const trimmed = options.map(o => o.trim());
@@ -140,17 +169,17 @@ router.post('/', (req: Request, res: Response): void => {
     return;
   }
 
-  const expiresAt = calcExpiresAt(duration);
+  const expiresAt = await calcExpiresAt(duration);
 
   // ── Insert market + outcomes atomically ──────────────────────────────────
-  let marketId!: number;
-
-  db.transaction(() => {
-    const result = db.prepare(`
+  const marketId = await db.transaction(async (tx) => {
+    const result = await tx.prepare(`
       INSERT INTO markets
         (title, category, type, options, probabilities, duration,
-         expires_at, image, banner, resolution_source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         expires_at, image, banner, resolution_source,
+         price_asset_id, price_asset_symbol, opening_price)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      RETURNING id
     `).run(
       title,
       category,
@@ -162,34 +191,37 @@ router.post('/', (req: Request, res: Response): void => {
       image             ?? null,
       banner            ?? null,
       resolution_source ?? null,
+      price_asset_id     ?? null,
+      price_asset_symbol ?? null,
+      openingPrice,
     );
 
-    marketId = result.lastInsertRowid as number;
+    const id = result.lastInsertRowid as number;
 
     // Insert one market_outcomes row per outcome
-    const insertOutcome = db.prepare(`
-      INSERT INTO market_outcomes (market_id, label, probability, pool_amount)
-      VALUES (?, ?, ?, 0)
-    `);
-
     for (const label of finalOptions) {
       const pct = probabilities[label] ?? 0;
-      insertOutcome.run(marketId, label, pct / 100);
+      await tx.prepare(`
+        INSERT INTO market_outcomes (market_id, label, probability, pool_amount)
+        VALUES (?, ?, ?, 0)
+      `).run(id, label, pct / 100);
     }
 
     // Seed opening price history snapshot
-    seedInitialSnapshot(marketId, finalOptions, probabilities);
-  })();
+    await seedInitialSnapshot(tx, id, finalOptions, probabilities, openingPrice);
 
-  const market   = db.prepare('SELECT * FROM markets WHERE id = ?').get(marketId) as DbMarket;
-  const outcomes = getOutcomes(marketId);
+    return id;
+  });
 
-  res.status(201).json({ success: true, data: toApiMarket(market, outcomes) });
+  const market   = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(marketId);
+  const outcomes = await getOutcomes(marketId);
+
+  res.status(201).json({ success: true, data: toApiMarket(market!, outcomes) });
 });
 
 // ─── PATCH /:id ───────────────────────────────────────────────────────────────
 
-router.patch('/:id', (req: Request, res: Response): void => {
+router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
 
@@ -199,7 +231,7 @@ router.patch('/:id', (req: Request, res: Response): void => {
     return;
   }
 
-  const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket | undefined;
+  const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
   const { title, category, image, banner, resolution_source, status } = parsed.data;
@@ -220,37 +252,37 @@ router.patch('/:id', (req: Request, res: Response): void => {
   }
 
   values.push(id);
-  db.prepare(`UPDATE markets SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  await db.prepare(`UPDATE markets SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
-  const updated  = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket;
-  const outcomes = getOutcomes(id);
+  const updated  = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+  const outcomes = await getOutcomes(id);
 
-  res.status(200).json({ success: true, data: toApiMarket(updated, outcomes) });
+  res.status(200).json({ success: true, data: toApiMarket(updated!, outcomes) });
 });
 
 // ─── DELETE /:id ──────────────────────────────────────────────────────────────
 // Admin can delete any market regardless of status.
 // FK cascade handles trades, market_outcomes, and price_history.
 
-router.delete('/:id', (req: Request, res: Response): void => {
+router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
 
-  const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket | undefined;
+  const market = await db.prepare('SELECT * FROM markets WHERE id = ?').get(id);
   if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
-  db.prepare('DELETE FROM markets WHERE id = ?').run(id);
+  await db.prepare('DELETE FROM markets WHERE id = ?').run(id);
 
   res.status(200).json({ success: true });
 });
 
 // ─── PATCH /:id/toggle ────────────────────────────────────────────────────────
 
-router.patch('/:id/toggle', (req: Request, res: Response): void => {
+router.patch('/:id/toggle', async (req: Request, res: Response): Promise<void> => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
 
-  const market = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket | undefined;
+  const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
   if (market.status === 'settled') {
@@ -259,12 +291,16 @@ router.patch('/:id/toggle', (req: Request, res: Response): void => {
   }
 
   const newStatus = market.status === 'open' ? 'closed' : 'open';
-  db.prepare('UPDATE markets SET status = ? WHERE id = ?').run(newStatus, id);
+  await db.prepare('UPDATE markets SET status = ? WHERE id = ?').run(newStatus, id);
 
-  const updated  = db.prepare('SELECT * FROM markets WHERE id = ?').get(id) as DbMarket;
-  const outcomes = getOutcomes(id);
+  if (newStatus === 'closed') {
+    emitter.marketClosed({ marketId: id, reason: 'manual', timestamp: new Date().toISOString() });
+  }
 
-  res.status(200).json({ success: true, data: toApiMarket(updated, outcomes) });
+  const updated  = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+  const outcomes = await getOutcomes(id);
+
+  res.status(200).json({ success: true, data: toApiMarket(updated!, outcomes) });
 });
 
 export default router;
