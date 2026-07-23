@@ -1,0 +1,452 @@
+<style>
+  :root {
+    --bg:          #0d0f14;
+    --bg-raised:   #151822;
+    --bg-card:     #1a1d27;
+    --bg-terminal: #0a0c10;
+    --border:      #262a37;
+    --border-soft: #1e222d;
+    --text:        #eef0f4;
+    --text-dim:    #97a0b5;
+    --text-faint:  #5b6272;
+    --emerald:     #10b981;
+    --emerald-dim: rgba(16,185,129,0.14);
+    --emerald-line:rgba(16,185,129,0.35);
+    --blue:        #4c7cf0;
+    --blue-dim:    rgba(76,124,240,0.14);
+    --blue-line:   rgba(76,124,240,0.4);
+    --amber:       #f2a93b;
+    --amber-dim:   rgba(242,169,59,0.14);
+    --amber-line:  rgba(242,169,59,0.4);
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  :root[data-theme="light"] {
+    --bg:          #f5f6fa;
+    --bg-raised:   #ffffff;
+    --bg-card:     #ffffff;
+    --bg-terminal: #101318;
+    --border:      #dde1ea;
+    --border-soft: #e7eaf1;
+    --text:        #12141a;
+    --text-dim:    #5c6579;
+    --text-faint:  #98a1b5;
+    --emerald:     #0a8f60;
+    --emerald-dim: rgba(10,143,96,0.09);
+    --emerald-line:rgba(10,143,96,0.3);
+    --blue:        #2b5fd9;
+    --blue-dim:    rgba(43,95,217,0.08);
+    --blue-line:   rgba(43,95,217,0.3);
+    --amber:       #b3720a;
+    --amber-dim:   rgba(179,114,10,0.1);
+    --amber-line:  rgba(179,114,10,0.35);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:          #f5f6fa;
+      --bg-raised:   #ffffff;
+      --bg-card:     #ffffff;
+      --bg-terminal: #101318;
+      --border:      #dde1ea;
+      --border-soft: #e7eaf1;
+      --text:        #12141a;
+      --text-dim:    #5c6579;
+      --text-faint:  #98a1b5;
+      --emerald:     #0a8f60;
+      --emerald-dim: rgba(10,143,96,0.09);
+      --emerald-line:rgba(10,143,96,0.3);
+      --blue:        #2b5fd9;
+      --blue-dim:    rgba(43,95,217,0.08);
+      --blue-line:   rgba(43,95,217,0.3);
+      --amber:       #b3720a;
+      --amber-dim:   rgba(179,114,10,0.1);
+      --amber-line:  rgba(179,114,10,0.35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+
+  .doc {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    padding: 56px 24px 96px;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--emerald);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(28px, 4vw, 36px);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .lede {
+    color: var(--text-dim);
+    font-size: 15.5px;
+    max-width: 60ch;
+    margin: 0 0 36px;
+  }
+
+  /* ── Verified-today terminal strip ─────────────────────────── */
+  .verified {
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 48px;
+    overflow-x: auto;
+  }
+  .verified-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #7de3b8;
+    margin-bottom: 12px;
+  }
+  .verified-head .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #7de3b8;
+    box-shadow: 0 0 0 3px rgba(125,227,184,0.18);
+  }
+  .verified pre {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: #c7cede;
+    white-space: pre;
+  }
+  .verified .ok    { color: #7de3b8; }
+  .verified .val   { color: #e8c15f; }
+  .verified .muted { color: #6b7280; }
+
+  /* ── Timeline ───────────────────────────────────────────────── */
+  .timeline { position: relative; }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 21px; top: 8px; bottom: 8px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .milestone {
+    position: relative;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 18px;
+    padding-bottom: 40px;
+  }
+  .milestone:last-child { padding-bottom: 0; }
+
+  .node {
+    position: relative;
+    z-index: 1;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 14px; font-weight: 600;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-faint);
+  }
+  .milestone[data-state="done"] .node {
+    background: var(--emerald-dim);
+    border-color: var(--emerald-line);
+    color: var(--emerald);
+  }
+  .milestone[data-state="next"] .node {
+    background: var(--blue-dim);
+    border-color: var(--blue-line);
+    color: var(--blue);
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    padding: 22px 24px;
+  }
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .card-head h2 {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  .pill {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .pill.done    { background: var(--emerald-dim); color: var(--emerald); border: 1px solid var(--emerald-line); }
+  .pill.next    { background: var(--blue-dim);    color: var(--blue);    border: 1px solid var(--blue-line); }
+  .pill.ready   { background: transparent;         color: var(--text-dim); border: 1px solid var(--border); }
+  .pill.blocked { background: var(--amber-dim);    color: var(--amber);   border: 1px solid var(--amber-line); }
+
+  .goal {
+    color: var(--text-dim);
+    font-size: 14.5px;
+    margin: 10px 0 16px;
+    max-width: 58ch;
+  }
+
+  .field { margin-top: 14px; }
+  .field-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 6px;
+  }
+  .field p, .field ul {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .field ul { padding-left: 18px; }
+  .field li + li { margin-top: 4px; }
+  .field code {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    padding: 1px 6px;
+    border-radius: 5px;
+  }
+  .field a { color: var(--blue); text-decoration: none; border-bottom: 1px solid var(--blue-line); }
+  .field a:hover { border-bottom-color: var(--blue); }
+
+  .note {
+    margin-top: 14px;
+    padding: 10px 13px;
+    border-radius: 9px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-soft);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .note b { color: var(--text); }
+
+  @media (max-width: 520px) {
+    .milestone { grid-template-columns: 34px 1fr; gap: 12px; }
+    .node { width: 34px; height: 34px; font-size: 12px; }
+    .timeline::before { left: 16px; }
+  }
+
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--emerald);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="doc">
+  <div class="wrap">
+    <p class="kicker">OutcomX &middot; Build Roadmap</p>
+    <h1>From wallet sign-in to real money moving</h1>
+    <p class="lede">
+      Eight milestones, in the order they depend on each other. Each one lists
+      what it's for, what's blocking it, and exactly how to unblock it.
+    </p>
+
+    <div class="verified">
+      <div class="verified-head"><span class="dot"></span> verified end-to-end &middot; 2026-07-09</div>
+      <pre><span class="muted">$</span> curl -X POST /api/auth/wallet/nonce   -d '{"address":"0x19E7...ff2A"}'
+<span class="ok">&#10003;</span> nonce issued, 5-minute expiry
+
+<span class="muted">$</span> curl -X POST /api/auth/wallet/verify  -d '{address, message, signature}'
+<span class="ok">&#10003;</span> signature verified via viem
+<span class="ok">&#10003;</span> account auto-created &rarr; user <span class="val">id: 4</span>, wallet linked
+<span class="ok">&#10003;</span> JWT issued, same shape the email flow already uses
+
+<span class="muted">$</span> curl -X POST /api/auth/wallet/verify  <span class="muted"># same nonce again</span>
+<span class="ok">&#10003;</span> rejected &mdash; "<span class="val">Nonce missing, expired, or already used</span>"
+
+<span class="muted">$</span> curl -X POST /api/auth/wallet/nonce &amp;&amp; verify  <span class="muted"># same address, new nonce</span>
+<span class="ok">&#10003;</span> reused existing <span class="val">user id 4</span> &mdash; no duplicate account</pre>
+    </div>
+
+    <div class="timeline">
+
+      <div class="milestone" data-state="done">
+        <div class="node">01</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Wallet auth</h2>
+            <span class="pill done">Core verified</span>
+          </div>
+          <p class="goal">Wallet becomes the identity system — sign a message instead of a password. No domain-dependent email or Google login needed to launch.</p>
+          <div class="field">
+            <p class="field-label">What's left</p>
+            <ul>
+              <li>Paste your Reown project ID into <code>outcomx/.env.local</code> as <code>NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID</code> &mdash; MetaMask and Coinbase Wallet already work without it.</li>
+              <li>Check <a href="https://cloud.reown.com" target="_blank" rel="noopener">cloud.reown.com</a>'s dashboard for your plan's relay-usage limit &mdash; it only throttles the WalletConnect QR path, not MetaMask/Coinbase.</li>
+            </ul>
+          </div>
+          <div class="note">Scoped down for now: signatures are checked against a simple custom message, not the full EIP-4361 SIWE spec. Fine for sign-in; worth upgrading before Milestone 7 (withdrawals) touches real money.</div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">02</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Ledger hardening</h2>
+            <span class="pill ready">Ready to start</span>
+          </div>
+          <p class="goal">Replace the single float balance column with an append-only double-entry ledger: integer micro-units instead of floats, refunds, idempotency keys — so money math can't silently drift.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <p>Nothing external. One decision when we get there: keep it USD-only for now (recommended) or lay groundwork for multi-currency entries up front.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">03</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Postgres migration</h2>
+            <span class="pill ready">Ready to start</span>
+          </div>
+          <p class="goal">SQLite is fine for one dev machine; Postgres is needed once real money and more than one server process are involved. A Prisma schema already exists for this — currently unused.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <p>A hosted Postgres connection string. Pick one:</p>
+            <ul>
+              <li><a href="https://railway.app" target="_blank" rel="noopener">railway.app</a></li>
+              <li><a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a></li>
+              <li><a href="https://neon.tech" target="_blank" rel="noopener">neon.tech</a></li>
+            </ul>
+          </div>
+          <div class="field">
+            <p class="field-label">How to get it</p>
+            <p>Free tier on any of the three, ~5 minutes: create a project, copy the connection string, paste it as <code>DATABASE_URL</code> in the backend's <code>.env</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">04</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Real-time gateway</h2>
+            <span class="pill ready">Ready to start</span>
+          </div>
+          <p class="goal">Replace the current 3s / 30s polling with push updates over Socket.IO, built on the <code>events.ts</code> emitter already scaffolded in the backend and currently unused.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <p>Nothing — say go whenever.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">05</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Crypto deposits</h2>
+            <span class="pill blocked">Needs 2 decisions</span>
+          </div>
+          <p class="goal">Users fund their ledger balance with real USDT/USDC.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <ul>
+              <li><b>Chain.</b> Ethereum mainnet gas fees will frustrate small deposits — Polymarket itself settles on Polygon. Recommend starting with one low-fee chain (Polygon or Base) rather than mainnet.</li>
+              <li><b>RPC provider</b> to watch incoming deposits on-chain.</li>
+            </ul>
+          </div>
+          <div class="field">
+            <p class="field-label">How to get it</p>
+            <p>Free signup at <a href="https://alchemy.com" target="_blank" rel="noopener">alchemy.com</a> or <a href="https://infura.io" target="_blank" rel="noopener">infura.io</a> &rarr; create an app for the chosen chain &rarr; copy the API key.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">06</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Card on-ramp</h2>
+            <span class="pill blocked">Needs domain</span>
+          </div>
+          <p class="goal">Let users buy in with a debit/credit card. A third-party widget handles KYC and the fiat&rarr;crypto conversion — OutcomX never touches fiat conversion directly, which avoids money-transmitter licensing.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <p>A business account with <a href="https://transak.com" target="_blank" rel="noopener">Transak</a> or <a href="https://moonpay.com" target="_blank" rel="noopener">MoonPay</a>, plus eventually a real domain (the widget needs an allowed origin to go live).</p>
+          </div>
+          <div class="note">Sandbox keys are issued immediately after signup — the integration can be built and tested before the domain exists. Only going live needs the domain.</div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">07</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Withdrawals &amp; treasury</h2>
+            <span class="pill blocked">Needs custody call</span>
+          </div>
+          <p class="goal">Let users cash back out. The highest-risk milestone — real money leaving the platform — needs an approval queue, per-user limits, and a hot/cold wallet split.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <p>A custody decision once volume exists to justify it: a single hot wallet you hold the key to is the simple starting point; a provider like <a href="https://fireblocks.com" target="_blank" rel="noopener">Fireblocks</a> or <a href="https://bitgo.com" target="_blank" rel="noopener">BitGo</a> is the step up.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone" data-state="next">
+        <div class="node">08</div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Production hardening</h2>
+            <span class="pill blocked">Needs domain + host</span>
+          </div>
+          <p class="goal">Secrets management, a rate-limit audit, monitoring/alerting, automated backups, a real deploy pipeline. The last step before real users touch real money.</p>
+          <div class="field">
+            <p class="field-label">What's needed from you</p>
+            <ul>
+              <li>A domain — this also unblocks Google OAuth and email verification as fast-follows to Milestone 1 (the <code>RESEND_API_KEY</code> is already configured, just waiting on a domain to send from).</li>
+              <li>A hosting choice — Vercel is the natural fit for the Next.js frontend; Railway, Render, or Fly for the Express backend.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
