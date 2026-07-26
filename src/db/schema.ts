@@ -284,6 +284,8 @@ export async function applySchema(): Promise<void> {
     if (!marketCols.includes('price_asset_symbol'))   await tx.exec(`ALTER TABLE markets ADD COLUMN price_asset_symbol TEXT`);
     if (!marketCols.includes('opening_price'))        await tx.exec(`ALTER TABLE markets ADD COLUMN opening_price REAL`);
     if (!marketCols.includes('resolved_by'))          await tx.exec(`ALTER TABLE markets ADD COLUMN resolved_by INTEGER REFERENCES users(id)`);
+    if (!marketCols.includes('featured'))             await tx.exec(`ALTER TABLE markets ADD COLUMN featured BOOLEAN NOT NULL DEFAULT false`);
+    if (!marketCols.includes('featured_order'))       await tx.exec(`ALTER TABLE markets ADD COLUMN featured_order INT NOT NULL DEFAULT 0`);
 
     const withdrawalCols = await columnsOf(tx, 'withdrawal_requests');
     if (!withdrawalCols.includes('resolved_by')) await tx.exec(`ALTER TABLE withdrawal_requests ADD COLUMN resolved_by INTEGER REFERENCES users(id)`);

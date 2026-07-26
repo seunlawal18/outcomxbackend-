@@ -14,6 +14,21 @@ async function getOutcomes(marketId: number): Promise<DbMarketOutcome[]> {
   ).all(marketId);
 }
 
+// ─── GET /featured ────────────────────────────────────────────────────────────
+// Public endpoint for the homepage hero slideshow.
+// Returns up to 5 featured open markets ordered by featured_order.
+
+router.get('/featured', async (req: Request, res: Response): Promise<void> => {
+  await autoCloseExpiredMarkets();
+
+  const rows = await db.prepare<DbMarket>(
+    "SELECT * FROM markets WHERE featured = true AND status = 'open' ORDER BY featured_order ASC LIMIT 5",
+  ).all();
+
+  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
+  res.status(200).json({ success: true, data });
+});
+
 // ─── GET / ────────────────────────────────────────────────────────────────────
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {

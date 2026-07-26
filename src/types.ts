@@ -72,6 +72,8 @@ export interface DbMarket {
   opening_price: number | null;       // real price at creation, for auto-resolution
   created_at: string;
   resolved_by: number | null;         // admin user id who manually resolved this — null for auto-resolved (live-price) markets
+  featured: boolean;
+  featured_order: number;
 }
 
 export interface DbMarketOutcome {
@@ -160,6 +162,8 @@ export interface ApiMarket {
   openingPrice: number | null;
   createdAt: string;
   resolvedBy: number | null; // admin user id — null if auto-resolved (live-price market)
+  featured: boolean;
+  featuredOrder: number;
   outcomes?: ApiMarketOutcome[];
 }
 
@@ -229,6 +233,8 @@ export function toApiMarket(row: DbMarket, outcomes?: DbMarketOutcome[]): ApiMar
     openingPrice:     row.opening_price      ?? null,
     createdAt:        row.created_at,
     resolvedBy:       row.resolved_by ?? null,
+    featured:         row.featured    ?? false,
+    featuredOrder:    row.featured_order ?? 0,
     outcomes:         outcomes?.map(toApiMarketOutcome),
   };
 }

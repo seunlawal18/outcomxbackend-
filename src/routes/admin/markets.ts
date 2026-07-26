@@ -276,6 +276,47 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   res.status(200).json({ success: true });
 });
 
+// ─── GET /featured ────────────────────────────────────────────────────────────
+// Admin view — all featured markets regardless of status, ordered by position.
+
+router.get('/featured', async (req: Request, res: Response): Promise<void> => {
+  const rows = await db.prepare<DbMarket>(
+    'SELECT * FROM markets WHERE featured = true ORDER BY featured_order ASC',
+  ).all();
+
+  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
+  res.status(200).json({ success: true, data });
+});
+
+// ─── PATCH /:id/feature ───────────────────────────────────────────────────────
+
+const featureSchema = z.object({
+  featured:      z.boolean(),
+  featuredOrder: z.number().int().min(0).default(0),
+});
+
+router.patch('/:id/feature', async (req: Request, res: Response): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
+
+  const parsed = featureSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.errors[0].message });
+    return;
+  }
+
+  const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+  if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
+
+  const { featured, featuredOrder } = parsed.data;
+  await db.prepare('UPDATE markets SET featured = ?, featured_order = ? WHERE id = ?').run(featured, featuredOrder, id);
+
+  const updated  = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+  const outcomes = await getOutcomes(id);
+
+  res.status(200).json({ success: true, data: toApiMarket(updated!, outcomes) });
+});
+
 // ─── PATCH /:id/toggle ────────────────────────────────────────────────────────
 
 router.patch('/:id/toggle', async (req: Request, res: Response): Promise<void> => {
