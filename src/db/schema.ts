@@ -286,6 +286,9 @@ export async function applySchema(): Promise<void> {
     if (!marketCols.includes('resolved_by'))          await tx.exec(`ALTER TABLE markets ADD COLUMN resolved_by INTEGER REFERENCES users(id)`);
     if (!marketCols.includes('featured'))             await tx.exec(`ALTER TABLE markets ADD COLUMN featured BOOLEAN NOT NULL DEFAULT false`);
     if (!marketCols.includes('featured_order'))       await tx.exec(`ALTER TABLE markets ADD COLUMN featured_order INT NOT NULL DEFAULT 0`);
+    if (!marketCols.includes('hero_tag'))             await tx.exec(`ALTER TABLE markets ADD COLUMN hero_tag TEXT`);
+    if (!marketCols.includes('hero_sub'))             await tx.exec(`ALTER TABLE markets ADD COLUMN hero_sub TEXT`);
+    if (!marketCols.includes('hero_accent'))          await tx.exec(`ALTER TABLE markets ADD COLUMN hero_accent TEXT`);
 
     const withdrawalCols = await columnsOf(tx, 'withdrawal_requests');
     if (!withdrawalCols.includes('resolved_by')) await tx.exec(`ALTER TABLE withdrawal_requests ADD COLUMN resolved_by INTEGER REFERENCES users(id)`);

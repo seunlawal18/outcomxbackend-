@@ -89,6 +89,19 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   res.status(200).json({ success: true, data });
 });
 
+// ─── GET /featured ────────────────────────────────────────────────────────────
+// Admin view — all featured markets regardless of status, ordered by position.
+// MUST be registered before /:id routes to avoid "featured" being parsed as an id.
+
+router.get('/featured', async (req: Request, res: Response): Promise<void> => {
+  const rows = await db.prepare<DbMarket>(
+    'SELECT * FROM markets WHERE featured = true ORDER BY featured_order ASC',
+  ).all();
+
+  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
+  res.status(200).json({ success: true, data });
+});
+
 // ─── POST / ───────────────────────────────────────────────────────────────────
 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
@@ -276,23 +289,14 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   res.status(200).json({ success: true });
 });
 
-// ─── GET /featured ────────────────────────────────────────────────────────────
-// Admin view — all featured markets regardless of status, ordered by position.
-
-router.get('/featured', async (req: Request, res: Response): Promise<void> => {
-  const rows = await db.prepare<DbMarket>(
-    'SELECT * FROM markets WHERE featured = true ORDER BY featured_order ASC',
-  ).all();
-
-  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
-  res.status(200).json({ success: true, data });
-});
-
 // ─── PATCH /:id/feature ───────────────────────────────────────────────────────
 
 const featureSchema = z.object({
   featured:      z.boolean(),
   featuredOrder: z.number().int().min(0).default(0),
+  heroTag:       z.string().max(100).optional(),
+  heroSub:       z.string().max(200).optional(),
+  heroAccent:    z.string().max(20).optional(),
 });
 
 router.patch('/:id/feature', async (req: Request, res: Response): Promise<void> => {
@@ -308,8 +312,12 @@ router.patch('/:id/feature', async (req: Request, res: Response): Promise<void> 
   const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
-  const { featured, featuredOrder } = parsed.data;
-  await db.prepare('UPDATE markets SET featured = ?, featured_order = ? WHERE id = ?').run(featured, featuredOrder, id);
+  const { featured, featuredOrder, heroTag, heroSub, heroAccent } = parsed.data;
+  await db.prepare(`
+    UPDATE markets
+    SET featured = ?, featured_order = ?, hero_tag = ?, hero_sub = ?, hero_accent = ?
+    WHERE id = ?
+  `).run(featured, featuredOrder, heroTag ?? null, heroSub ?? null, heroAccent ?? null, id);
 
   const updated  = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   const outcomes = await getOutcomes(id);

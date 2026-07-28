@@ -74,6 +74,9 @@ export interface DbMarket {
   resolved_by: number | null;         // admin user id who manually resolved this — null for auto-resolved (live-price) markets
   featured: boolean;
   featured_order: number;
+  hero_tag: string | null;
+  hero_sub: string | null;
+  hero_accent: string | null;
 }
 
 export interface DbMarketOutcome {
@@ -164,6 +167,9 @@ export interface ApiMarket {
   resolvedBy: number | null; // admin user id — null if auto-resolved (live-price market)
   featured: boolean;
   featuredOrder: number;
+  heroTag: string | null;
+  heroSub: string | null;
+  heroAccent: string | null;
   outcomes?: ApiMarketOutcome[];
 }
 
@@ -235,6 +241,9 @@ export function toApiMarket(row: DbMarket, outcomes?: DbMarketOutcome[]): ApiMar
     resolvedBy:       row.resolved_by ?? null,
     featured:         row.featured    ?? false,
     featuredOrder:    row.featured_order ?? 0,
+    heroTag:          row.hero_tag    ?? null,
+    heroSub:          row.hero_sub    ?? null,
+    heroAccent:       row.hero_accent ?? null,
     outcomes:         outcomes?.map(toApiMarketOutcome),
   };
 }
