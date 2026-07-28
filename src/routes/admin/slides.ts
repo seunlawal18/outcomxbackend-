@@ -31,7 +31,7 @@ function toApiSlide(row: DbPromoSlide) {
     ctaHref:     row.cta_href,
     bannerImage: row.banner_image,
     accentColor: row.accent_color,
-    active:      row.active,
+    active:      Boolean(row.active),
     createdAt:   row.created_at,
   };
 }
@@ -45,8 +45,8 @@ function toApiSlide(row: DbPromoSlide) {
 const createSlideSchema = z.object({
   slideOrder:  z.number().int().min(0),
   accentColor: z.string().min(1, 'accentColor is required').max(30),
-  active:      z.boolean(),
-  headline:    z.string().max(200).nullish().transform(v => v ?? null),
+  active:      z.union([z.boolean(), z.number()]).transform(v => Boolean(v)),
+  headline:    z.string().max(200).nullish().transform(v => v || null),
   subheadline: z.string().max(300).nullish().transform(v => v ?? null),
   tag:         z.string().max(100).nullish().transform(v => v ?? null),
   ctaText:     z.string().max(100).nullish().transform(v => v ?? null),
@@ -60,8 +60,8 @@ const createSlideSchema = z.object({
 const updateSlideSchema = z.object({
   slideOrder:  z.number().int().min(0).optional(),
   accentColor: z.string().min(1).max(30).optional(),
-  active:      z.boolean().optional(),
-  headline:    z.string().max(200).nullish().transform(v => v ?? null),
+  active:      z.union([z.boolean(), z.number()]).transform(v => Boolean(v)).optional(),
+  headline:    z.string().max(200).nullish().transform(v => v || null),
   subheadline: z.string().max(300).nullish().transform(v => v ?? null),
   tag:         z.string().max(100).nullish().transform(v => v ?? null),
   ctaText:     z.string().max(100).nullish().transform(v => v ?? null),
