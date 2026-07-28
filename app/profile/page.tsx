@@ -23,7 +23,7 @@ export default function ProfilePage() {
 
 function ProfileContent() {
   const { userProfile, updateProfile, balance, trades, markets } = useStore();
-  const { fmt, fmtUSD, cfg, toLocal } = useCurrency();
+  const { fmtUSD, cfg, toLocal } = useCurrency();
   const [editing, setEditing]   = useState(false);
   const [name, setName]         = useState(userProfile.name);
   const [username, setUsername] = useState(userProfile.username);

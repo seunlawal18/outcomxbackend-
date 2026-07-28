@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { useCurrency } from "@/lib/useCurrency";
-import { apiFetch } from "@/lib/api";
 import { MessageCircle, Send, Heart } from "lucide-react";
 
 // Extend apiFetch for comments (not exported, so we call fetch directly)

@@ -543,7 +543,7 @@ export default function Navbar() {
                         </Link>
                       ))}
                       <div style={{ borderTop: `1px solid ${dropdownBorder}`, margin: "6px 4px 4px" }} />
-                      <button onClick={() => { userLogout(); setShowProfile(false); }}                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", color: "var(--red)", background: "none", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer", transition: "background 0.15s" }}
+                      <button onClick={() => { void userLogout(); setShowProfile(false); }}                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", color: "var(--red)", background: "none", border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer", transition: "background 0.15s" }}
                         onMouseEnter={e => (e.currentTarget.style.background = "var(--red-bg)")}
                         onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                         <LogOut size={14} /> Log Out
@@ -643,7 +643,7 @@ export default function Navbar() {
                 </Link>
               ))}
               {isLoggedIn && (
-                <button onClick={() => { userLogout(); setMobileOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, color: "var(--red)", background: "var(--red-bg)", border: "1px solid var(--red-border)", fontSize: 15, fontWeight: 500, cursor: "pointer", width: "100%", textAlign: "left" }}>
+                <button onClick={() => { void userLogout(); setMobileOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, color: "var(--red)", background: "var(--red-bg)", border: "1px solid var(--red-border)", fontSize: 15, fontWeight: 500, cursor: "pointer", width: "100%", textAlign: "left" }}>
                   <LogOut size={16} /> Log Out
                 </button>
               )}

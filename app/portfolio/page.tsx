@@ -18,7 +18,7 @@ export default function PortfolioPage() {
 
 function PortfolioContent() {
   const { trades, balance } = useStore();
-  const { fmtUSD, toLocal, fmt } = useCurrency();
+  const { fmtUSD } = useCurrency();
 
   const totalInvested = trades.reduce((sum, t) => sum + t.amount, 0);
   const wonTrades     = trades.filter((t) => t.status === "won");

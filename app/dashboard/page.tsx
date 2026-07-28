@@ -23,7 +23,7 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const { userProfile, balance, trades, markets } = useStore();
-  const { fmt, fmtUSD, cfg } = useCurrency();
+  const { fmtUSD, cfg } = useCurrency();
 
   const wonTrades    = trades.filter(t => t.status === "won");
   const lostTrades   = trades.filter(t => t.status === "lost");
