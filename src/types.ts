@@ -78,6 +78,7 @@ export interface DbMarket {
   hero_sub: string | null;
   hero_accent: string | null;
   hero_banner: string | null;
+  hero_href: string | null;
 }
 
 export interface DbMarketOutcome {
@@ -172,6 +173,7 @@ export interface ApiMarket {
   heroSub: string | null;
   heroAccent: string | null;
   heroBanner: string | null;
+  heroHref: string | null;
   outcomes?: ApiMarketOutcome[];
 }
 
@@ -247,6 +249,7 @@ export function toApiMarket(row: DbMarket, outcomes?: DbMarketOutcome[]): ApiMar
     heroSub:          row.hero_sub    ?? null,
     heroAccent:       row.hero_accent ?? null,
     heroBanner:       row.hero_banner ?? null,
+    heroHref:         row.hero_href   ?? null,
     outcomes:         outcomes?.map(toApiMarketOutcome),
   };
 }
