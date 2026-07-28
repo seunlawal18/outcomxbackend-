@@ -14,7 +14,7 @@ const config = {
   nodeEnv:        process.env.NODE_ENV ?? 'development',
   jwtSecret,
   jwtExpiresIn:   process.env.JWT_EXPIRES_IN ?? '24h',
-  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000').split(','),
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000,http://localhost:3002').split(','),
   dbPath:         process.env.DB_PATH ?? './outcomx.db',
   databaseUrl:    process.env.DATABASE_URL ?? '',
   bcryptRounds:   parseInt(process.env.BCRYPT_ROUNDS ?? '12', 10),

@@ -77,8 +77,8 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
 
   const marketSlides: MarketSlideItem[] = await Promise.all(
     marketRows.map(async m => ({
-      type: 'market' as const,
       ...toApiMarket(m, await getOutcomes(m.id)),
+      type: 'market' as const,
     })),
   );
 

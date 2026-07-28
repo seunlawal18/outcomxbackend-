@@ -305,11 +305,17 @@ const featureSchema = z.object({
   heroTag:       z.string().max(100).optional(),
   heroSub:       z.string().max(200).optional(),
   heroAccent:    z.string().max(20).optional(),
-  heroBanner:    z.string().refine(
-    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
-    { message: 'heroBanner must be a valid URL or base64 data URL' }
-  ).optional(),
-  heroHref:      z.string().url('heroHref must be a valid URL').optional(),
+  // .optional() must come BEFORE .refine() so that undefined is passed
+  // through without triggering the validation — otherwise Zod calls the
+  // refine predicate on undefined and the check crashes / always fails.
+  heroBanner:    z.string().optional().refine(
+    v => !v || v.startsWith('data:image/') || /^https?:\/\//.test(v),
+    { message: 'heroBanner must be a valid image URL or base64 data URL' },
+  ),
+  // z.string().url() rejects relative paths like "/" or "/?category=sports"
+  // — use a plain string with a length cap so the admin can link to any
+  // internal route without validation errors.
+  heroHref:      z.string().max(500).optional(),
 });
 
 router.patch('/:id/feature', async (req: Request, res: Response): Promise<void> => {
