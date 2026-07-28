@@ -24,35 +24,59 @@ function toApiSlide(row: DbPromoSlide) {
   return {
     id:          row.id,
     slideOrder:  row.slide_order,
-    tag:         row.tag,
-    headline:    row.headline,
-    subheadline: row.subheadline,
-    ctaText:     row.cta_text,
-    ctaHref:     row.cta_href,
-    bannerImage: row.banner_image,
+    tag:         row.tag           ?? null,
+    headline:    row.headline      ?? null,
+    title:       row.headline      ?? null,  // alias for frontend compat
+    subheadline: row.subheadline   ?? null,
+    subtitle:    row.subheadline   ?? null,  // alias for frontend compat
+    ctaText:     row.cta_text      ?? null,
+    ctaLabel:    row.cta_text      ?? null,  // alias for frontend compat
+    ctaHref:     row.cta_href      ?? null,
+    bannerImage: row.banner_image  ?? null,
     accentColor: row.accent_color,
     active:      Boolean(row.active),
     createdAt:   row.created_at,
   };
 }
 
-// ─── Zod schemas ──────────────────────────────────────────────────────────────
+// ─── Nullable optional string helper ─────────────────────────────────────────
+// Accepts string | null | undefined | "" — normalises empty/"" to null.
+const optStr = (max: number) =>
+  z.union([z.string().max(max), z.null(), z.undefined()])
+   .transform(v => (v == null || v === '') ? null : v);
 
-// Required: slideOrder, accentColor, active
-// Optional: headline, tag, subheadline, ctaText, ctaHref, bannerImage
-// Reject only if BOTH headline and bannerImage are absent/empty
+// ─── Zod schemas ──────────────────────────────────────────────────────────────
+// Accepts both naming conventions:
+//   headline / title, subheadline / subtitle, ctaText / ctaLabel
 
 const createSlideSchema = z.object({
+  // required
   slideOrder:  z.number().int().min(0),
   accentColor: z.string().min(1, 'accentColor is required').max(30),
   active:      z.union([z.boolean(), z.number()]).transform(v => Boolean(v)),
-  headline:    z.string().max(200).nullish().transform(v => v || null),
-  subheadline: z.string().max(300).nullish().transform(v => v ?? null),
-  tag:         z.string().max(100).nullish().transform(v => v ?? null),
-  ctaText:     z.string().max(100).nullish().transform(v => v ?? null),
-  ctaHref:     z.string().max(500).nullish().transform(v => v ?? null),
-  bannerImage: z.string().nullish().transform(v => v ?? null),
-}).refine(
+  // optional — accept both field name variants + null + empty string
+  headline:    optStr(200),
+  title:       optStr(200),        // frontend alias
+  subheadline: optStr(300),
+  subtitle:    optStr(300),        // frontend alias
+  tag:         optStr(100),
+  ctaText:     optStr(100),
+  ctaLabel:    optStr(100),        // frontend alias
+  ctaHref:     optStr(500),
+  bannerImage: optStr(10_000_000),
+  gradient:    optStr(500),        // accepted but not stored (no column) — ignored
+}).transform(data => ({
+  // normalise aliases into canonical fields
+  slideOrder:  data.slideOrder,
+  accentColor: data.accentColor,
+  active:      data.active,
+  headline:    data.headline ?? data.title ?? null,
+  subheadline: data.subheadline ?? data.subtitle ?? null,
+  tag:         data.tag,
+  ctaText:     data.ctaText ?? data.ctaLabel ?? null,
+  ctaHref:     data.ctaHref,
+  bannerImage: data.bannerImage,
+})).refine(
   data => !!(data.headline?.trim() || data.bannerImage?.trim()),
   { message: 'At least one of headline or bannerImage is required' },
 );
@@ -61,13 +85,27 @@ const updateSlideSchema = z.object({
   slideOrder:  z.number().int().min(0).optional(),
   accentColor: z.string().min(1).max(30).optional(),
   active:      z.union([z.boolean(), z.number()]).transform(v => Boolean(v)).optional(),
-  headline:    z.string().max(200).nullish().transform(v => v || null),
-  subheadline: z.string().max(300).nullish().transform(v => v ?? null),
-  tag:         z.string().max(100).nullish().transform(v => v ?? null),
-  ctaText:     z.string().max(100).nullish().transform(v => v ?? null),
-  ctaHref:     z.string().max(500).nullish().transform(v => v ?? null),
-  bannerImage: z.string().nullish().transform(v => v ?? null),
-});
+  headline:    optStr(200),
+  title:       optStr(200),
+  subheadline: optStr(300),
+  subtitle:    optStr(300),
+  tag:         optStr(100),
+  ctaText:     optStr(100),
+  ctaLabel:    optStr(100),
+  ctaHref:     optStr(500),
+  bannerImage: optStr(10_000_000),
+  gradient:    optStr(500),
+}).transform(data => ({
+  slideOrder:  data.slideOrder,
+  accentColor: data.accentColor,
+  active:      data.active,
+  headline:    data.headline !== undefined ? data.headline : (data.title !== undefined ? data.title : undefined),
+  subheadline: data.subheadline !== undefined ? data.subheadline : (data.subtitle !== undefined ? data.subtitle : undefined),
+  tag:         data.tag,
+  ctaText:     data.ctaText !== undefined ? data.ctaText : (data.ctaLabel !== undefined ? data.ctaLabel : undefined),
+  ctaHref:     data.ctaHref,
+  bannerImage: data.bannerImage,
+}));
 
 // ─── GET / — all slides ───────────────────────────────────────────────────────
 
@@ -165,4 +203,3 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 });
 
 export default router;
-

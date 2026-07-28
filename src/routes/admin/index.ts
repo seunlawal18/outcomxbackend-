@@ -21,6 +21,7 @@ router.use('/resolve',     resolveRouter);
 router.use('/users',       usersAdminRouter);
 router.use('/withdrawals', withdrawalsAdminRouter);
 router.use('/slides',      slidesAdminRouter);
+router.use('/hero-slides', slidesAdminRouter); // alias — frontend may call either
 
 // ─── GET /stats ───────────────────────────────────────────────────────────────
 // COUNT(*) returns bigint in Postgres (parsed as a JS string by the driver) —
