@@ -83,7 +83,7 @@ const createSlideSchema = z.object({
 
 const updateSlideSchema = z.object({
   slideOrder:  z.number().int().min(0).optional(),
-  accentColor: z.string().min(1).max(30).optional(),
+  accentColor: z.union([z.string().min(1).max(30), z.null(), z.undefined()]).transform(v => v || '#6c63ff').optional(),
   active:      z.union([z.boolean(), z.number()]).transform(v => Boolean(v)).optional(),
   headline:    optStr(200),
   title:       optStr(200),
