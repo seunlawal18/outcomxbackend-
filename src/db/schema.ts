@@ -303,7 +303,7 @@ export async function applySchema(): Promise<void> {
         id            SERIAL PRIMARY KEY,
         slide_order   INT NOT NULL DEFAULT 0,
         tag           TEXT,
-        headline      TEXT NOT NULL,
+        headline      TEXT,
         subheadline   TEXT,
         cta_text      TEXT,
         cta_href      TEXT,

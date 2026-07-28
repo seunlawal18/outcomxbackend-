@@ -10,7 +10,7 @@ interface DbPromoSlide {
   id: number;
   slide_order: number;
   tag: string | null;
-  headline: string;
+  headline: string | null;
   subheadline: string | null;
   cta_text: string | null;
   cta_href: string | null;
@@ -38,24 +38,44 @@ function toApiSlide(row: DbPromoSlide) {
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
+// Required: slideOrder, accentColor, active
+// Optional: headline, tag, subheadline, ctaText, ctaHref, bannerImage
+// Reject only if BOTH headline and bannerImage are absent/empty
+
 const createSlideSchema = z.object({
-  headline:    z.string().min(1, 'Headline is required').max(200),
-  subheadline: z.string().max(300).optional(),
-  tag:         z.string().max(100).optional(),
-  ctaText:     z.string().max(100).optional(),
-  ctaHref:     z.string().max(500).optional(),
+  slideOrder:  z.number().int().min(0),
+  accentColor: z.string().min(1, 'accentColor is required').max(30),
+  active:      z.boolean(),
+  headline:    z.string().max(200).optional().nullable(),
+  subheadline: z.string().max(300).optional().nullable(),
+  tag:         z.string().max(100).optional().nullable(),
+  ctaText:     z.string().max(100).optional().nullable(),
+  ctaHref:     z.string().max(500).optional().nullable(),
   bannerImage: z.string().refine(
     v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
     { message: 'bannerImage must be a valid URL or base64 data URL' },
-  ).optional(),
-  accentColor: z.string().max(30).optional(),
+  ).optional().nullable(),
+}).refine(
+  data => !!(data.headline?.trim() || data.bannerImage?.trim()),
+  { message: 'At least one of headline or bannerImage is required' },
+);
+
+const updateSlideSchema = z.object({
   slideOrder:  z.number().int().min(0).optional(),
+  accentColor: z.string().min(1).max(30).optional(),
   active:      z.boolean().optional(),
+  headline:    z.string().max(200).optional().nullable(),
+  subheadline: z.string().max(300).optional().nullable(),
+  tag:         z.string().max(100).optional().nullable(),
+  ctaText:     z.string().max(100).optional().nullable(),
+  ctaHref:     z.string().max(500).optional().nullable(),
+  bannerImage: z.string().refine(
+    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
+    { message: 'bannerImage must be a valid URL or base64 data URL' },
+  ).optional().nullable(),
 });
 
-const updateSlideSchema = createSlideSchema.partial();
-
-// ─── GET / ────────────────────────────────────────────────────────────────────
+// ─── GET / — all slides ───────────────────────────────────────────────────────
 
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   const rows = await db.prepare<DbPromoSlide>(
@@ -73,22 +93,22 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  const { headline, subheadline, tag, ctaText, ctaHref, bannerImage, accentColor, slideOrder, active } = parsed.data;
+  const { slideOrder, accentColor, active, headline, subheadline, tag, ctaText, ctaHref, bannerImage } = parsed.data;
 
   const row = (await db.prepare<DbPromoSlide>(`
     INSERT INTO promo_slides (slide_order, tag, headline, subheadline, cta_text, cta_href, banner_image, accent_color, active)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     RETURNING *
   `).get(
-    slideOrder  ?? 0,
+    slideOrder,
     tag         ?? null,
-    headline,
+    headline    ?? null,
     subheadline ?? null,
     ctaText     ?? null,
     ctaHref     ?? null,
     bannerImage ?? null,
-    accentColor ?? '#6c63ff',
-    active      ?? true,
+    accentColor,
+    active,
   ))!;
 
   res.status(201).json({ success: true, data: toApiSlide(row) });
@@ -109,20 +129,20 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   const slide = await db.prepare<DbPromoSlide>('SELECT * FROM promo_slides WHERE id = ?').get(id);
   if (!slide) { res.status(404).json({ success: false, error: 'Slide not found' }); return; }
 
-  const { headline, subheadline, tag, ctaText, ctaHref, bannerImage, accentColor, slideOrder, active } = parsed.data;
+  const { slideOrder, accentColor, active, headline, subheadline, tag, ctaText, ctaHref, bannerImage } = parsed.data;
 
   const fields: string[] = [];
   const values: unknown[] = [];
 
+  if (slideOrder  !== undefined) { fields.push('slide_order = ?');  values.push(slideOrder); }
+  if (accentColor !== undefined) { fields.push('accent_color = ?'); values.push(accentColor); }
+  if (active      !== undefined) { fields.push('active = ?');       values.push(active); }
   if (headline    !== undefined) { fields.push('headline = ?');     values.push(headline); }
   if (subheadline !== undefined) { fields.push('subheadline = ?');  values.push(subheadline); }
   if (tag         !== undefined) { fields.push('tag = ?');          values.push(tag); }
   if (ctaText     !== undefined) { fields.push('cta_text = ?');     values.push(ctaText); }
   if (ctaHref     !== undefined) { fields.push('cta_href = ?');     values.push(ctaHref); }
   if (bannerImage !== undefined) { fields.push('banner_image = ?'); values.push(bannerImage); }
-  if (accentColor !== undefined) { fields.push('accent_color = ?'); values.push(accentColor); }
-  if (slideOrder  !== undefined) { fields.push('slide_order = ?');  values.push(slideOrder); }
-  if (active      !== undefined) { fields.push('active = ?');       values.push(active); }
 
   if (fields.length === 0) {
     res.status(400).json({ success: false, error: 'No fields provided to update' });
