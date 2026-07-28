@@ -113,7 +113,8 @@ async function bootstrap(): Promise<void> {
   app.use('/api/wallet',  walletRouter);
   app.use('/api/admin',   adminRouter);
   app.use('/api/webhooks', webhooksRouter);
-  app.use('/api/slides',  slidesRouter);
+  app.use('/api/slides',       slidesRouter);
+  app.use('/api/hero-slides',  slidesRouter); // alias � frontend calls this
 
   // ── Health check ──────────────────────────────────────────────────────────
   app.get('/api/health', (_req: Request, res: Response) => {

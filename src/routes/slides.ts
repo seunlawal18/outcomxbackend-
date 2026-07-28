@@ -73,6 +73,11 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
     bannerImage: s.banner_image,
     accentColor: s.accent_color,
     createdAt:   s.created_at,
+    // frontend aliases (NewsSlideshow promoToSlide reads these)
+    title:       s.headline,
+    subtitle:    s.subheadline,
+    ctaLabel:    s.cta_text,
+    gradient:    null,
   }));
 
   const marketSlides: MarketSlideItem[] = await Promise.all(
