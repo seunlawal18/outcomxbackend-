@@ -1,80 +1,44 @@
 import { Router, Request, Response } from 'express';
 import db from '../db/client';
-import { autoCloseExpiredMarkets } from '../services/marketService';
-import { DbMarket, DbMarketOutcome, toApiMarket } from '../types';
 
 const router = Router();
 
-interface DbHeroSlide {
+interface DbPromoSlide {
   id: number;
-  title: string;
-  subtitle: string | null;
+  slide_order: number;
   tag: string | null;
-  cta_label: string | null;
+  headline: string;
+  subheadline: string | null;
+  cta_text: string | null;
   cta_href: string | null;
   banner_image: string | null;
   accent_color: string;
-  gradient: string | null;
-  slide_order: number;
   active: boolean;
   created_at: string;
 }
 
-async function getOutcomes(marketId: number): Promise<DbMarketOutcome[]> {
-  return db.prepare<DbMarketOutcome>(
-    'SELECT * FROM market_outcomes WHERE market_id = ? ORDER BY id ASC',
-  ).all(marketId);
-}
-
 // ─── GET / ────────────────────────────────────────────────────────────────────
-// Returns all active promo slides AND featured open markets merged and sorted
-// by their respective order fields. The frontend renders each type differently
-// based on the `type` discriminator field.
+// Public — returns active promo slides only, ordered by slide_order.
 
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
-  await autoCloseExpiredMarkets();
+  const rows = await db.prepare<DbPromoSlide>(
+    'SELECT * FROM promo_slides WHERE active = true ORDER BY slide_order ASC',
+  ).all();
 
-  // Fetch both in parallel
-  const [promoRows, marketRows] = await Promise.all([
-    db.prepare<DbHeroSlide>(
-      'SELECT * FROM hero_slides WHERE active = true ORDER BY slide_order ASC',
-    ).all(),
-    db.prepare<DbMarket>(
-      "SELECT * FROM markets WHERE featured = true AND status = 'open' ORDER BY featured_order ASC",
-    ).all(),
-  ]);
-
-  // Build promo slide objects
-  const promoSlides = promoRows.map(s => ({
-    type:        'promo' as const,
+  const data = rows.map(s => ({
     id:          s.id,
-    title:       s.title,
-    subtitle:    s.subtitle,
+    slideOrder:  s.slide_order,
     tag:         s.tag,
-    ctaLabel:    s.cta_label,
+    headline:    s.headline,
+    subheadline: s.subheadline,
+    ctaText:     s.cta_text,
     ctaHref:     s.cta_href,
     bannerImage: s.banner_image,
     accentColor: s.accent_color,
-    gradient:    s.gradient,
-    slideOrder:  s.slide_order,
+    createdAt:   s.created_at,
   }));
 
-  // Build market slide objects (full ApiMarket + type discriminator)
-  const marketSlides = await Promise.all(
-    marketRows.map(async m => ({
-      type: 'market' as const,
-      ...toApiMarket(m, await getOutcomes(m.id)),
-    })),
-  );
-
-  // Merge and sort by their respective order fields
-  const all = [...promoSlides, ...marketSlides].sort((a, b) => {
-    const aOrder = 'slideOrder' in a ? (a.slideOrder ?? 0) : (a.featuredOrder ?? 0);
-    const bOrder = 'slideOrder' in b ? (b.slideOrder ?? 0) : (b.featuredOrder ?? 0);
-    return aOrder - bOrder;
-  });
-
-  res.status(200).json({ success: true, data: all });
+  res.status(200).json({ success: true, data });
 });
 
 export default router;

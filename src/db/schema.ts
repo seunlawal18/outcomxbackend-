@@ -293,6 +293,26 @@ export async function applySchema(): Promise<void> {
         created_at    TEXT NOT NULL DEFAULT ${NOW_DEFAULT}
       )
     `);
+
+    // ── Promo slides ──────────────────────────────────────────────────────────
+    // Canonical promotional slides table with spec-aligned column names.
+    // hero_slides is kept for backward compat but promo_slides is the
+    // primary table used by all routes going forward.
+    await tx.exec(`
+      CREATE TABLE IF NOT EXISTS promo_slides (
+        id            SERIAL PRIMARY KEY,
+        slide_order   INT NOT NULL DEFAULT 0,
+        tag           TEXT,
+        headline      TEXT NOT NULL,
+        subheadline   TEXT,
+        cta_text      TEXT,
+        cta_href      TEXT,
+        banner_image  TEXT,
+        accent_color  TEXT NOT NULL DEFAULT '#6c63ff',
+        active        BOOLEAN NOT NULL DEFAULT true,
+        created_at    TEXT NOT NULL DEFAULT ${NOW_DEFAULT}
+      )
+    `);
     const marketCols = await columnsOf(tx, 'markets');
     if (!marketCols.includes('banner'))             await tx.exec(`ALTER TABLE markets ADD COLUMN banner TEXT`);
     if (!marketCols.includes('resolution_source'))   await tx.exec(`ALTER TABLE markets ADD COLUMN resolution_source TEXT`);
