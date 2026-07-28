@@ -305,6 +305,10 @@ const featureSchema = z.object({
   heroTag:       z.string().max(100).optional(),
   heroSub:       z.string().max(200).optional(),
   heroAccent:    z.string().max(20).optional(),
+  heroBanner:    z.string().refine(
+    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
+    { message: 'heroBanner must be a valid URL or base64 data URL' }
+  ).optional(),
 });
 
 router.patch('/:id/feature', async (req: Request, res: Response): Promise<void> => {
@@ -320,12 +324,12 @@ router.patch('/:id/feature', async (req: Request, res: Response): Promise<void> 
   const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
 
-  const { featured, featuredOrder, heroTag, heroSub, heroAccent } = parsed.data;
+  const { featured, featuredOrder, heroTag, heroSub, heroAccent, heroBanner } = parsed.data;
   await db.prepare(`
     UPDATE markets
-    SET featured = ?, featured_order = ?, hero_tag = ?, hero_sub = ?, hero_accent = ?
+    SET featured = ?, featured_order = ?, hero_tag = ?, hero_sub = ?, hero_accent = ?, hero_banner = ?
     WHERE id = ?
-  `).run(featured, featuredOrder, heroTag ?? null, heroSub ?? null, heroAccent ?? null, id);
+  `).run(featured, featuredOrder, heroTag ?? null, heroSub ?? null, heroAccent ?? null, heroBanner ?? null, id);
 
   const updated  = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
   const outcomes = await getOutcomes(id);
