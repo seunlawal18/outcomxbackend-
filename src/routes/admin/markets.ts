@@ -39,7 +39,11 @@ const createMarketSchema = z.object({
   // probabilities: optional — admin can supply opening probs or let system equalise
   probabilities:     z.record(z.string(), z.number().positive()).optional(),
   image:             z.string().url('Image must be a valid URL').optional(),
-  banner:            z.string().url('Banner must be a valid URL').optional(),
+  // Accept either a regular URL or a base64 data URL (data:image/...)
+  banner:            z.string().refine(
+    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
+    { message: 'Banner must be a valid URL or a base64 data URL (data:image/...)' }
+  ).optional(),
   resolution_source: z.string().max(500).optional(),
   // Live-price tracking — UP_DOWN markets only. Presence of price_asset_id
   // marks the market for automatic price-based resolution at expiry.
@@ -51,7 +55,11 @@ const updateMarketSchema = z.object({
   title:             z.string().min(10).max(300).optional(),
   category:          z.enum(CATEGORIES).optional(),
   image:             z.string().url().optional(),
-  banner:            z.string().url().optional(),
+  // Accept either a regular URL or a base64 data URL (data:image/...)
+  banner:            z.string().refine(
+    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
+    { message: 'Banner must be a valid URL or a base64 data URL (data:image/...)' }
+  ).optional(),
   resolution_source: z.string().max(500).optional(),
   status:            z.enum(['open', 'closed']).optional(),
 });
