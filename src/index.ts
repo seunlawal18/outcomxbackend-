@@ -37,6 +37,7 @@ import tradesRouter  from './routes/trades';
 import walletRouter  from './routes/wallet';
 import adminRouter   from './routes/admin/index';
 import webhooksRouter from './routes/webhooks';
+import slidesRouter  from './routes/slides';
 
 // 8. Error handler (must be last)
 import { errorHandler } from './middleware/errorHandler';
@@ -112,6 +113,7 @@ async function bootstrap(): Promise<void> {
   app.use('/api/wallet',  walletRouter);
   app.use('/api/admin',   adminRouter);
   app.use('/api/webhooks', webhooksRouter);
+  app.use('/api/slides',  slidesRouter);
 
   // ── Health check ──────────────────────────────────────────────────────────
   app.get('/api/health', (_req: Request, res: Response) => {

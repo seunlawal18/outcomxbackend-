@@ -7,6 +7,7 @@ import marketsAdminRouter from './markets';
 import resolveRouter from './resolve';
 import usersAdminRouter from './users';
 import withdrawalsAdminRouter from './withdrawals';
+import slidesAdminRouter from './slides';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.use('/markets',     marketsAdminRouter);
 router.use('/resolve',     resolveRouter);
 router.use('/users',       usersAdminRouter);
 router.use('/withdrawals', withdrawalsAdminRouter);
+router.use('/slides',      slidesAdminRouter);
 
 // ─── GET /stats ───────────────────────────────────────────────────────────────
 // COUNT(*) returns bigint in Postgres (parsed as a JS string by the driver) —

@@ -274,7 +274,25 @@ export async function applySchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_ev_user_id ON email_verifications(user_id)
     `);
 
-    // ── Migrate existing tables — add new columns if they don't exist ──────
+    // ── Hero slides ───────────────────────────────────────────────────────────
+    // Standalone promotional slides for the homepage carousel — not linked
+    // to any market. Mixed with featured markets in GET /api/slides.
+    await tx.exec(`
+      CREATE TABLE IF NOT EXISTS hero_slides (
+        id            SERIAL PRIMARY KEY,
+        title         TEXT NOT NULL,
+        subtitle      TEXT,
+        tag           TEXT,
+        cta_label     TEXT,
+        cta_href      TEXT,
+        banner_image  TEXT,
+        accent_color  TEXT NOT NULL DEFAULT '#6c63ff',
+        gradient      TEXT,
+        slide_order   INT NOT NULL DEFAULT 0,
+        active        BOOLEAN NOT NULL DEFAULT true,
+        created_at    TEXT NOT NULL DEFAULT ${NOW_DEFAULT}
+      )
+    `);
     const marketCols = await columnsOf(tx, 'markets');
     if (!marketCols.includes('banner'))             await tx.exec(`ALTER TABLE markets ADD COLUMN banner TEXT`);
     if (!marketCols.includes('resolution_source'))   await tx.exec(`ALTER TABLE markets ADD COLUMN resolution_source TEXT`);
