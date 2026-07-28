@@ -46,15 +46,12 @@ const createSlideSchema = z.object({
   slideOrder:  z.number().int().min(0),
   accentColor: z.string().min(1, 'accentColor is required').max(30),
   active:      z.boolean(),
-  headline:    z.string().max(200).optional().nullable(),
-  subheadline: z.string().max(300).optional().nullable(),
-  tag:         z.string().max(100).optional().nullable(),
-  ctaText:     z.string().max(100).optional().nullable(),
-  ctaHref:     z.string().max(500).optional().nullable(),
-  bannerImage: z.string().refine(
-    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
-    { message: 'bannerImage must be a valid URL or base64 data URL' },
-  ).optional().nullable(),
+  headline:    z.string().max(200).nullish().transform(v => v ?? null),
+  subheadline: z.string().max(300).nullish().transform(v => v ?? null),
+  tag:         z.string().max(100).nullish().transform(v => v ?? null),
+  ctaText:     z.string().max(100).nullish().transform(v => v ?? null),
+  ctaHref:     z.string().max(500).nullish().transform(v => v ?? null),
+  bannerImage: z.string().nullish().transform(v => v ?? null),
 }).refine(
   data => !!(data.headline?.trim() || data.bannerImage?.trim()),
   { message: 'At least one of headline or bannerImage is required' },
@@ -64,15 +61,12 @@ const updateSlideSchema = z.object({
   slideOrder:  z.number().int().min(0).optional(),
   accentColor: z.string().min(1).max(30).optional(),
   active:      z.boolean().optional(),
-  headline:    z.string().max(200).optional().nullable(),
-  subheadline: z.string().max(300).optional().nullable(),
-  tag:         z.string().max(100).optional().nullable(),
-  ctaText:     z.string().max(100).optional().nullable(),
-  ctaHref:     z.string().max(500).optional().nullable(),
-  bannerImage: z.string().refine(
-    v => v.startsWith('data:image/') || /^https?:\/\//.test(v),
-    { message: 'bannerImage must be a valid URL or base64 data URL' },
-  ).optional().nullable(),
+  headline:    z.string().max(200).nullish().transform(v => v ?? null),
+  subheadline: z.string().max(300).nullish().transform(v => v ?? null),
+  tag:         z.string().max(100).nullish().transform(v => v ?? null),
+  ctaText:     z.string().max(100).nullish().transform(v => v ?? null),
+  ctaHref:     z.string().max(500).nullish().transform(v => v ?? null),
+  bannerImage: z.string().nullish().transform(v => v ?? null),
 });
 
 // ─── GET / — all slides ───────────────────────────────────────────────────────
@@ -171,3 +165,4 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 });
 
 export default router;
+
