@@ -114,7 +114,7 @@ async function bootstrap(): Promise<void> {
   app.use('/api/admin',   adminRouter);
   app.use('/api/webhooks', webhooksRouter);
   app.use('/api/slides',       slidesRouter);
-  app.use('/api/hero-slides',  slidesRouter); // alias � frontend calls this
+  app.use('/api/hero-slides',  slidesRouter); // alias � frontend calls this
 
   // ── Health check ──────────────────────────────────────────────────────────
   app.get('/api/health', (_req: Request, res: Response) => {
@@ -134,7 +134,7 @@ async function bootstrap(): Promise<void> {
   // ── Heartbeat snapshots ──────────────────────────────────────────────────
   // Keeps quiet markets' price history populated with real (flat) data
   // points even when no trades occur, so charts never need fabricated data.
-  const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  const SNAPSHOT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
   setInterval(() => { createMarketHistorySnapshot().catch(err => console.error('Snapshot failed:', err)); }, SNAPSHOT_INTERVAL_MS);
 
   // ── Live price ticks ──────────────────────────────────────────────────────
