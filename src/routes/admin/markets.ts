@@ -297,6 +297,37 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   res.status(200).json({ success: true });
 });
 
+// ─── PATCH /:id/trending ─────────────────────────────────────────────────────
+
+const trendingSchema = z.object({
+  trending:      z.boolean(),
+  trendingOrder: z.number().int().min(0).default(0),
+});
+
+router.patch('/:id/trending', async (req: Request, res: Response): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ success: false, error: 'Invalid market ID' }); return; }
+
+  const parsed = trendingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.errors[0].message });
+    return;
+  }
+
+  const market = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+  if (!market) { res.status(404).json({ success: false, error: 'Market not found' }); return; }
+
+  const { trending, trendingOrder } = parsed.data;
+  await db.prepare(`
+    UPDATE markets SET trending = ?, trending_order = ? WHERE id = ?
+  `).run(trending, trendingOrder, id);
+
+  const updated  = await db.prepare<DbMarket>('SELECT * FROM markets WHERE id = ?').get(id);
+  const outcomes = await getOutcomes(id);
+
+  res.status(200).json({ success: true, data: toApiMarket(updated!, outcomes) });
+});
+
 // ─── PATCH /:id/feature ───────────────────────────────────────────────────────
 
 const featureSchema = z.object({

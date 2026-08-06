@@ -67,6 +67,7 @@ export interface DbMarket {
   platform_fee: number | null;  // 3% of total pool, set at settlement
   prize_pool: number | null;    // 97% of total pool, set at settlement
   trending: number;
+  trending_order: number;
   price_asset_id: string | null;      // CoinGecko coin id — presence marks a live-price market
   price_asset_symbol: string | null;  // display symbol, e.g. "BTC"
   opening_price: number | null;       // real price at creation, for auto-resolution
@@ -162,6 +163,7 @@ export interface ApiMarket {
   platformFee: number | null;   // 3% of total pool — null until settled
   prizePool: number | null;     // 97% of total pool — null until settled
   trending: boolean;
+  trendingOrder: number;
   priceAssetId: string | null;
   priceAssetSymbol: string | null;
   openingPrice: number | null;
@@ -238,6 +240,7 @@ export function toApiMarket(row: DbMarket, outcomes?: DbMarketOutcome[]): ApiMar
     platformFee:      row.platform_fee ?? null,
     prizePool:        row.prize_pool   ?? null,
     trending:         row.trending === 1,
+    trendingOrder:    row.trending_order ?? 0,
     priceAssetId:     row.price_asset_id     ?? null,
     priceAssetSymbol: row.price_asset_symbol ?? null,
     openingPrice:     row.opening_price      ?? null,

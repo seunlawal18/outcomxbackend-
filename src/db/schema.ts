@@ -329,6 +329,7 @@ export async function applySchema(): Promise<void> {
     if (!marketCols.includes('hero_accent'))          await tx.exec(`ALTER TABLE markets ADD COLUMN hero_accent TEXT`);
     if (!marketCols.includes('hero_banner'))          await tx.exec(`ALTER TABLE markets ADD COLUMN hero_banner TEXT`);
     if (!marketCols.includes('hero_href'))            await tx.exec(`ALTER TABLE markets ADD COLUMN hero_href TEXT`);
+    if (!marketCols.includes('trending_order'))       await tx.exec(`ALTER TABLE markets ADD COLUMN trending_order INT NOT NULL DEFAULT 0`);
 
     const withdrawalCols = await columnsOf(tx, 'withdrawal_requests');
     if (!withdrawalCols.includes('resolved_by')) await tx.exec(`ALTER TABLE withdrawal_requests ADD COLUMN resolved_by INTEGER REFERENCES users(id)`);

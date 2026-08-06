@@ -14,6 +14,21 @@ async function getOutcomes(marketId: number): Promise<DbMarketOutcome[]> {
   ).all(marketId);
 }
 
+// ─── GET /trending ────────────────────────────────────────────────────────────
+// Public — returns up to 10 open trending markets ordered by trending_order ASC,
+// then volume DESC. MUST be registered before /:id to avoid route collision.
+
+router.get('/trending', async (_req: Request, res: Response): Promise<void> => {
+  await autoCloseExpiredMarkets();
+
+  const rows = await db.prepare<DbMarket>(
+    "SELECT * FROM markets WHERE trending = true AND status = 'open' ORDER BY trending_order ASC, volume DESC LIMIT 10",
+  ).all();
+
+  const data = await Promise.all(rows.map(async r => toApiMarket(r, await getOutcomes(r.id))));
+  res.status(200).json({ success: true, data });
+});
+
 // ─── GET /featured ────────────────────────────────────────────────────────────
 // Public endpoint for the homepage hero slideshow.
 // Returns up to 5 featured open markets ordered by featured_order.
